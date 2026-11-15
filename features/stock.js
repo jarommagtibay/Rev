@@ -108,7 +108,7 @@ function buildStockEmbed() {
 }
 
 // Good-looking stock board for /publicstock
-// ping = false for the automatic reminders, so the shop role is not pinged every 2 hours
+// ping = false for the automatic reminders, so the shop role is not pinged every hour
 function buildPublicStock(ping = true) {
   const T = M.publicStock;
   const open = data.shopOpen;
@@ -180,10 +180,12 @@ function buildPublicStock(ping = true) {
   return message;
 }
 
-// ---------- Stock channel: the bot posts the stock board by itself every 2 hours ----------
+// ---------- Stock channel: the bot posts the stock board by itself every 1 hour ----------
 // It shows if there is stock or not (same board as /publicstock). Only the latest board stays.
-// The shop open / closed status is NOT touched: staff open and close the shop with /shop.
-const STOCK_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
+// The automatic posting only runs while the shop is OPEN. When staff close the shop with /shop,
+// it pauses. When the shop is opened again, it resumes (and posts right away if 1 hour has passed).
+// The shop open / closed status itself is NOT touched: staff open and close the shop with /shop.
+const STOCK_INTERVAL = 60 * 60 * 1000; // 1 hour
 let posting = false;
 
 // Returns true if the board was posted
@@ -220,10 +222,12 @@ async function postStockBoard() {
 }
 
 // Checks every minute. Because the time of the last post is saved, a restart does not
-// reset the 2 hours (and a missed reminder is posted as soon as the bot is back).
+// reset the 1 hour (and a missed reminder is posted as soon as the bot is back).
+// If the shop is closed, nothing is posted.
 if (STOCK_CHANNEL_ID) {
   setInterval(() => {
     if (!client.isReady()) return;
+    if (!data.shopOpen) return; // shop closed -> automatic stock posting is disabled
     if (Date.now() - (data.stockPostedAt || 0) >= STOCK_INTERVAL) postStockBoard();
   }, 60 * 1000);
 } else {
@@ -265,4 +269,5 @@ async function handle(interaction) {
   return false;
 }
 
-module.exports = { commands, handle };
+// postStockBoard is also used by shop.js to refresh the board when the shop opens or closes
+module.exports = { commands, handle, postStockBoard };

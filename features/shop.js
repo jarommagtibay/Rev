@@ -9,11 +9,13 @@ const {
   BUY_CHANNEL_ID,
   SHOP_STATUS_CHANNEL_ID,
   SHOP_PING_ROLE_ID,
+  STOCK_CHANNEL_ID,
 } = require('../config');
 const client = require('../core/client');
 const { data, saveData } = require('../core/data');
 const M = require('../messages');
 const { EPHEMERAL, isStaff, fill } = require('../core/helpers');
+const { postStockBoard } = require('./stock');
 
 const commands = [
   new SlashCommandBuilder()
@@ -53,8 +55,8 @@ async function postShopStatus(isOpen) {
 
   const description = isOpen
     ? fill(M.shopOpen.text, {
-        buyChannel: BUY_CHANNEL_ID ? `<#${BUY_CHANNEL_ID}>` : 'the buy channel',
-      })
+      buyChannel: BUY_CHANNEL_ID ? `<#${BUY_CHANNEL_ID}>` : 'the buy channel',
+    })
     : fill(M.shopClosed.text);
 
   const embed = new EmbedBuilder().setColor(COLOR).setDescription(description).setTimestamp();
@@ -108,6 +110,14 @@ async function runShop(interaction) {
   } catch (err) {
     console.error('Could not post shop status:', err);
     note = '\n⚠️ Could not post the picture in the status channel. Check SHOP_STATUS_CHANNEL_ID and the bot\'s permissions there.';
+  }
+
+  // Refresh the stock board once, so it shows the new open / closed look right away
+  if (STOCK_CHANNEL_ID) {
+    const posted = await postStockBoard();
+    if (!posted) {
+      note += '\n⚠️ I could not update the stock board in the stock channel. Check STOCK_CHANNEL_ID and my permissions there.';
+    }
   }
 
   return interaction.editReply(

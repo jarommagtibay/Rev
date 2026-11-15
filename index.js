@@ -10,6 +10,17 @@ const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL } = require('./core/helpers');
 
+// Keep the bot alive if something unexpected fails: log it instead of crashing
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled promise rejection:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+client.on(Events.Error, (err) => {
+  console.error('Discord client error:', err);
+});
+
 // Load every feature file
 const features = fs
   .readdirSync(path.join(__dirname, 'features'))
@@ -70,7 +81,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
       interaction
         .reply({ content: 'Something went wrong.', flags: EPHEMERAL })
-        .catch(() => {});
+        .catch(() => { });
     }
   }
 });
