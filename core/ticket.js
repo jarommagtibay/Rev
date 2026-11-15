@@ -181,12 +181,13 @@ function makeSafeName(user) {
 }
 
 // Creates the private ticket channel (customer + staff + bot only)
-async function createTicketChannel(interaction, position, safeName) {
+// product = 'robux' or the game key (e.g. 'ml'), saved in the topic so the bot can count tickets per product
+async function createTicketChannel(interaction, position, safeName, product) {
   return interaction.guild.channels.create({
     name: `queue-${position}-${safeName}`,
     type: ChannelType.GuildText,
     parent: CATEGORY_ID || null,
-    topic: `ticket:${interaction.user.id}`,
+    topic: `ticket:${interaction.user.id}:${product}`,
     permissionOverwrites: [
       {
         id: interaction.guild.roles.everyone.id,
@@ -233,9 +234,9 @@ async function sendPaymentMessage(channel, priceText, itemText) {
       .setColor(COLOR)
       .setDescription(
         `You need to pay\n## ${priceText}\nfor **${itemText}**\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n` +
-          'Staff will send you the QR code here. Once you have paid, send your receipt in this ticket.\n\n' +
-          '> 🧾  **No receipt = no process!**\n' +
-          '> ⚠️  **For force refund, 30% of the total will be deducted.**'
+        'Staff will send you the QR code here. Once you have paid, send your receipt in this ticket.\n\n' +
+        '> 🧾  **No receipt = no process!**\n' +
+        '> ⚠️  **For force refund, 30% of the total will be deducted.**'
       )
       .setFooter({ text: 'Tap a button below to see the payment QR' });
 

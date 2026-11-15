@@ -7,7 +7,14 @@ const {
   MessageFlags,
   PermissionFlagsBits,
 } = require('discord.js');
-const { STAFF_ROLE_ID, COLOR, CURRENCY, STICKERS, ROOT } = require('../config');
+const {
+  STAFF_ROLE_ID,
+  COLOR,
+  CURRENCY,
+  STICKERS,
+  ROOT,
+  MAX_TICKETS_PER_PRODUCT,
+} = require('../config');
 const { data } = require('./data');
 
 const EPHEMERAL = MessageFlags.Ephemeral;
@@ -70,8 +77,26 @@ function baseName(channelName) {
   return channelName.replace(/^(ticket|queue-\d+|sent|done)-/, '');
 }
 
+// The topic is "ticket:<userId>:<product>" (older tickets: "ticket:<userId>")
 function getCustomerId(channel) {
-  return (channel.topic || '').replace('ticket:', '');
+  return (channel.topic || '').replace('ticket:', '').split(':')[0];
+}
+
+// Open tickets one customer has for one product ('robux' or a game key like 'ml')
+function findOpenTickets(guild, userId, product) {
+  const topic = `ticket:${userId}:${product}`;
+  return [...guild.channels.cache.filter((ch) => ch.topic === topic).values()];
+}
+
+// Returns a message for the customer if they already have the maximum, otherwise null
+function ticketLimitMessage(guild, userId, product, productName) {
+  const open = findOpenTickets(guild, userId, product);
+  if (open.length < MAX_TICKETS_PER_PRODUCT) return null;
+  return (
+    `You already have ${open.length} open ${productName} ticket${open.length === 1 ? '' : 's'} ` +
+    `(the limit is ${MAX_TICKETS_PER_PRODUCT}): ${open.join(', ')}\n` +
+    'Please finish or close one before opening another.'
+  );
 }
 
 // Takes the Robux text and the price text from a form.
@@ -120,5 +145,7 @@ module.exports = {
   ticketMessage,
   baseName,
   getCustomerId,
+  findOpenTickets,
+  ticketLimitMessage,
   parseOrderAmount,
 };

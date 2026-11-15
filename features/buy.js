@@ -10,7 +10,7 @@ const {
 } = require('discord.js');
 const { CURRENCY, COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT } = require('../config');
 const { data, saveData, formatPrice } = require('../core/data');
-const { EPHEMERAL, parseOrderAmount } = require('../core/helpers');
+const { EPHEMERAL, parseOrderAmount, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
   ticketRows,
@@ -19,6 +19,7 @@ const {
   sendPaymentMessage,
 } = require('../core/ticket');
 const { refreshQueue } = require('../core/queue');
+const { logTicketCreated } = require('../core/audit');
 
 const commands = [];
 
@@ -35,14 +36,9 @@ async function showChoice(interaction) {
     });
   }
 
-  const existing = interaction.guild.channels.cache.find(
-    (ch) => ch.topic === `ticket:${interaction.user.id}`
-  );
-  if (existing) {
-    return interaction.reply({
-      content: `You already have an open ticket: ${existing}`,
-      flags: EPHEMERAL,
-    });
+  const limitMessage = ticketLimitMessage(interaction.guild, interaction.user.id, 'robux', 'Robux');
+  if (limitMessage) {
+    return interaction.reply({ content: limitMessage, flags: EPHEMERAL });
   }
 
   const choiceRow = new ActionRowBuilder().addComponents(
@@ -76,14 +72,9 @@ async function showForm(interaction) {
     });
   }
 
-  const existing = interaction.guild.channels.cache.find(
-    (ch) => ch.topic === `ticket:${interaction.user.id}`
-  );
-  if (existing) {
-    return interaction.reply({
-      content: `You already have an open ticket: ${existing}`,
-      flags: EPHEMERAL,
-    });
+  const limitMessage = ticketLimitMessage(interaction.guild, interaction.user.id, 'robux', 'Robux');
+  if (limitMessage) {
+    return interaction.reply({ content: limitMessage, flags: EPHEMERAL });
   }
 
   const mode = interaction.customId === 'buy_by_robux' ? 'robux' : 'price';
@@ -135,14 +126,9 @@ async function createTicket(interaction) {
   const username = interaction.fields.getTextInputValue('account_username').trim();
   const value = interaction.fields.getTextInputValue('amount_value');
 
-  const existingTicket = interaction.guild.channels.cache.find(
-    (ch) => ch.topic === `ticket:${interaction.user.id}`
-  );
-  if (existingTicket) {
-    return interaction.reply({
-      content: `You already have an open ticket: ${existingTicket}`,
-      flags: EPHEMERAL,
-    });
+  const limitMessage = ticketLimitMessage(interaction.guild, interaction.user.id, 'robux', 'Robux');
+  if (limitMessage) {
+    return interaction.reply({ content: limitMessage, flags: EPHEMERAL });
   }
 
   const parsed = parseOrderAmount(
@@ -168,7 +154,7 @@ async function createTicket(interaction) {
   // Position is decided before the channel is created so the name can include it
   const position = data.queue.length + 1;
 
-  const channel = await createTicketChannel(interaction, position, safeName);
+  const channel = await createTicketChannel(interaction, position, safeName, 'robux');
 
   const embed = new EmbedBuilder()
     .setAuthor({ name: 'REVÉUX  •  ORDER TICKET' })
@@ -208,6 +194,17 @@ async function createTicket(interaction) {
     notifiedNext: false,
   });
   saveData();
+
+  // Record who opened the ticket in the audit channel (not awaited, never blocks the customer)
+  logTicketCreated(interaction, {
+    channel,
+    item: `${amount.toLocaleString()} Robux`,
+    price: formatPrice(amount),
+    details: [
+      { name: 'Account Name', value: name },
+      { name: 'Account Username', value: username },
+    ],
+  });
 
   // Greet them with their position (and ping them if they're first)
   await refreshQueue(interaction.guild);

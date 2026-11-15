@@ -12,7 +12,7 @@ const {
 const { COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT } = require('../config');
 const { GAMES } = require('../catalog');
 const { data, saveData, formatPeso } = require('../core/data');
-const { EPHEMERAL } = require('../core/helpers');
+const { EPHEMERAL, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
   ticketRows,
@@ -21,21 +21,15 @@ const {
   sendPaymentMessage,
 } = require('../core/ticket');
 const { refreshQueue } = require('../core/queue');
+const { logTicketCreated } = require('../core/audit');
 
 const commands = [];
 
-function findOpenTicket(interaction) {
-  return interaction.guild.channels.cache.find(
-    (ch) => ch.topic === `ticket:${interaction.user.id}`
-  );
-}
-
 // Checks shared by every step. Returns a reply message if the customer can't continue.
-function blockReason(interaction) {
+// The ticket limit is counted per game (key = the game key from catalog.js, e.g. 'ml').
+function blockReason(interaction, game, key) {
   if (!data.shopOpen) return SHOP_CLOSED_TEXT;
-  const existing = findOpenTicket(interaction);
-  if (existing) return `You already have an open ticket: ${existing}`;
-  return null;
+  return ticketLimitMessage(interaction.guild, interaction.user.id, key, game.name);
 }
 
 // Game button -> dropdown with the packages
@@ -46,7 +40,7 @@ async function showPackages(interaction) {
     return interaction.reply({ content: 'That game is not available.', flags: EPHEMERAL });
   }
 
-  const blocked = blockReason(interaction);
+  const blocked = blockReason(interaction, game, key);
   if (blocked) return interaction.reply({ content: blocked, flags: EPHEMERAL });
 
   const menu = new StringSelectMenuBuilder()
@@ -81,7 +75,7 @@ async function showForm(interaction) {
     });
   }
 
-  const blocked = blockReason(interaction);
+  const blocked = blockReason(interaction, game, key);
   if (blocked) return interaction.reply({ content: blocked, flags: EPHEMERAL });
 
   const modal = new ModalBuilder()
@@ -114,7 +108,7 @@ async function createTicket(interaction) {
     });
   }
 
-  const blocked = blockReason(interaction);
+  const blocked = blockReason(interaction, game, key);
   if (blocked) return interaction.reply({ content: blocked, flags: EPHEMERAL });
 
   // Read and check every field
@@ -140,7 +134,7 @@ async function createTicket(interaction) {
   // Position is decided before the channel is created so the name can include it
   const position = data.queue.length + 1;
 
-  const channel = await createTicketChannel(interaction, position, safeName);
+  const channel = await createTicketChannel(interaction, position, safeName, key);
 
   const embed = new EmbedBuilder()
     .setAuthor({ name: 'REVÉUX  •  ORDER TICKET' })
@@ -185,6 +179,14 @@ async function createTicket(interaction) {
     notifiedNext: false,
   });
   saveData();
+
+  // Record who opened the ticket in the audit channel (not awaited, never blocks the customer)
+  logTicketCreated(interaction, {
+    channel,
+    item: `${pkg.label}  •  ${game.name}`,
+    price: formatPeso(pkg.price),
+    details: game.fields.map((f) => ({ name: f.label, value: values[f.id] })),
+  });
 
   // Greet them with their position (and ping them if they're first)
   await refreshQueue(interaction.guild);

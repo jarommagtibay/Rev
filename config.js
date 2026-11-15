@@ -14,12 +14,17 @@ const {
   SHOP_STATUS_CHANNEL_ID,
   SHOP_PING_ROLE_ID,
   STOCK_CHANNEL_ID,
+  AUDIT_CHANNEL_ID,
 } = process.env;
 
 const ROOT = __dirname;
 
 // Change this to your currency symbol
 const CURRENCY = '₱';
+
+// How many open tickets one customer can have for the same product
+// (Robux counts as one product, and each game is its own product)
+const MAX_TICKETS_PER_PRODUCT = 2;
 
 // Embed color
 const COLOR = 0x94030f;
@@ -60,8 +65,10 @@ module.exports = {
   SHOP_STATUS_CHANNEL_ID,
   SHOP_PING_ROLE_ID,
   STOCK_CHANNEL_ID,
+  AUDIT_CHANNEL_ID,
   ROOT,
   CURRENCY,
+  MAX_TICKETS_PER_PRODUCT,
   COLOR,
   SHOP_IMAGES,
   QR_FILES,
