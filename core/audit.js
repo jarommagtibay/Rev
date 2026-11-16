@@ -39,10 +39,31 @@ async function logTicketCreated(interaction, { channel, item, price, details = [
       .setTimestamp();
 
     const auditChannel = await client.channels.fetch(AUDIT_CHANNEL_ID);
-    await auditChannel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    const posted = await auditChannel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    return posted.id;
   } catch (err) {
     console.error('Could not post the audit log:', err);
+    return null;
   }
 }
 
-module.exports = { logTicketCreated };
+// After Edit Order: show the new amount in the ticket log, with the original amount beside it.
+// This never throws, so a logging problem can never stop an order edit.
+async function updateTicketLogOrder(entry, newAmount, newPrice) {
+  if (!AUDIT_CHANNEL_ID || !entry.auditMessageId) return;
+  try {
+    const auditChannel = await client.channels.fetch(AUDIT_CHANNEL_ID);
+    const message = await auditChannel.messages.fetch({ message: entry.auditMessageId, force: true });
+    const embed = EmbedBuilder.from(message.embeds[0]);
+    const was = entry.originalAmount ? `\n✏️ edited, originally ${entry.originalAmount.toLocaleString()} Robux` : '';
+    const fields = (embed.data.fields || []).map((f) =>
+      f.name === 'Order' ? { ...f, value: `${newAmount.toLocaleString()} Robux\n${newPrice}${was}` } : f
+    );
+    embed.setFields(fields);
+    await message.edit({ embeds: [embed], allowedMentions: { parse: [] } });
+  } catch (err) {
+    console.error('Could not update the audit log:', err);
+  }
+}
+
+module.exports = { logTicketCreated, updateTicketLogOrder };

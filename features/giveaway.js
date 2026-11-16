@@ -1,12 +1,14 @@
-// /giveaway -> staff starts a Robux giveaway (a popup form opens)      /reroll -> new winner(s)
+// /giveaway -> staff starts a Robux or GCash giveaway (a popup form opens)      /reroll -> new winner(s)
 //
 // How it works:
-//  1. Staff runs /giveaway, picks "Robux amount" or "Pesos worth of Robux" and fills in the popup.
-//     The prize is always shown as Robux with its peso value beside it, e.g. 1,000 Robux (₱350).
+//  1. Staff runs /giveaway, picks "Robux amount", "Pesos worth of Robux" or "GCash prize" and fills in the popup.
+//     A Robux prize is shown with its peso value beside it, e.g. 1,000 Robux (₱350).
+//     A GCash prize is a cash prize in pesos, e.g. ₱100 via GCash (no Robux rate needed).
 //  2. People tap the Enter button. When the time is up the bot picks the winner(s).
 //     NO ticket opens by itself, so a reroll is easy.
 //  3. Under the announcement each winner has a Claim button. ONLY that winner can press it.
-//     A popup asks for their account name and Roblox username, then their claim ticket opens.
+//     A popup asks for their account name and Roblox username (for a GCash prize: their GCash
+//     name and number), then their claim ticket opens.
 //  4. In the ticket: staff press "Prize Sent" and attach a proof of delivery picture (like the
 //     buying tickets), then the winner taps Vouch to confirm the giveaway is real.
 //
@@ -59,6 +61,7 @@ const AUTHOR = { name: 'REVÉUX  •  GIVEAWAY' };
 
 const MIN_TIME = 10 * 1000; // 10 seconds
 const MAX_TIME = 30 * 24 * 60 * 60 * 1000; // 30 days
+const MAX_GCASH_PRIZE = 100000; // biggest GCash prize in pesos (stops typing mistakes)
 
 // ---------- Saved data ----------
 const FILE = path.join(ROOT, 'giveaways.json');
@@ -84,15 +87,16 @@ function save() {
 const commands = [
   new SlashCommandBuilder()
     .setName(NAMES.giveaway)
-    .setDescription('Staff only: start a Robux giveaway (opens a form)')
+    .setDescription('Staff only: start a giveaway (opens a form)')
     .addStringOption((o) =>
       o
         .setName('type')
-        .setDescription('Is the prize a Robux amount or pesos worth of Robux?')
+        .setDescription('What is the prize?')
         .setRequired(true)
         .addChoices(
           { name: 'Robux amount', value: 'robux' },
-          { name: `Pesos worth of Robux (${CURRENCY})`, value: 'price' }
+          { name: `Pesos worth of Robux (${CURRENCY})`, value: 'price' },
+          { name: `GCash prize (${CURRENCY} cash)`, value: 'gcash' }
         )
     )
     .addChannelOption((o) =>
@@ -157,9 +161,16 @@ function hasField(embed, name) {
   return (embed.data.fields || []).some((f) => f.name === name);
 }
 
+function formatPesos(n) {
+  return `${CURRENCY}${Number(n).toLocaleString('en-US')}`;
+}
+
 // Big prize headline used on every giveaway card: the Robux amount large, the peso value under it.
 // (Old giveaways saved before this update only have the prize text, so they fall back to that.)
 function prizeHeadline(g) {
+  if (g.kind === 'gcash') {
+    return `### 💸  GCash prize\n## ${formatPesos(g.pesos)}`;
+  }
   if (g.amount && g.priceText) {
     return `### 💎  ${Number(g.amount).toLocaleString('en-US')} Robux\n## ${g.priceText}`;
   }
@@ -177,8 +188,8 @@ function giveawayEmbed(g) {
       .setTitle('🎉  GIVEAWAY  🎉')
       .setDescription(
         `${prizeHeadline(g)}\n${LINE}\n` +
-          'Tap **🎉 Enter** below to join!\n\n' +
-          `⏰  Ends <t:${unix(g.endsAt)}:R>  •  <t:${unix(g.endsAt)}:f>`
+        'Tap **🎉 Enter** below to join!\n\n' +
+        `⏰  Ends <t:${unix(g.endsAt)}:R>  •  <t:${unix(g.endsAt)}:f>`
       )
       .addFields(
         { name: '🏆  Winners', value: `**${g.winnersCount}**`, inline: true },
@@ -252,8 +263,8 @@ async function announceWinners(g, channel, winnerIds, rerolled) {
     .setTitle(rerolled ? '🔁  New Winner' : '🎊  We Have a Winner!')
     .setDescription(
       `## Congratulations!\n${mentions}\n\n` +
-        `You won\n${prizeHeadline(g)}\n${LINE}\n` +
-        '> Tap **Claim** below to open your claim ticket. Only the winner can press their own button.'
+      `You won\n${prizeHeadline(g)}\n${LINE}\n` +
+      '> Tap **Claim** below to open your claim ticket. Only the winner can press their own button.'
     )
     .setFooter({ text: 'Claim your prize before staff close the giveaway' })
     .setTimestamp();
@@ -332,7 +343,13 @@ setInterval(async () => {
 function buildGiveawayModal(channelId, mode) {
   const amount = new TextInputBuilder()
     .setCustomId('gw_amount')
-    .setLabel(mode === 'robux' ? 'How much Robux is the prize?' : `How many pesos worth of Robux? (${CURRENCY})`)
+    .setLabel(
+      mode === 'robux'
+        ? 'How much Robux is the prize?'
+        : mode === 'gcash'
+          ? `How many pesos is the GCash prize? (${CURRENCY})`
+          : `How many pesos worth of Robux? (${CURRENCY})`
+    )
     .setPlaceholder(mode === 'robux' ? 'e.g. 1000' : 'e.g. 100')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
@@ -354,7 +371,9 @@ function buildGiveawayModal(channelId, mode) {
 
   return new ModalBuilder()
     .setCustomId(`gw_start:${channelId}:${mode}`)
-    .setTitle(mode === 'robux' ? 'Giveaway: Robux amount' : 'Giveaway: pesos worth')
+    .setTitle(
+      mode === 'robux' ? 'Giveaway: Robux amount' : mode === 'gcash' ? 'Giveaway: GCash prize' : 'Giveaway: pesos worth'
+    )
     .addComponents(
       new ActionRowBuilder().addComponents(amount),
       new ActionRowBuilder().addComponents(time),
@@ -370,11 +389,12 @@ async function runGiveaway(interaction) {
   if (!isStaff(interaction.member)) {
     return interaction.reply({ content: 'Only staff can use this command.', flags: EPHEMERAL });
   }
-  if (data.rate <= 0) {
+  const mode = interaction.options.getString('type');
+  // A GCash prize does not use the Robux rate
+  if (mode !== 'gcash' && data.rate <= 0) {
     return interaction.reply({ content: rateMissingText(), flags: EPHEMERAL });
   }
 
-  const mode = interaction.options.getString('type');
   const channel = interaction.options.getChannel('channel') || interaction.channel;
   return interaction.showModal(buildGiveawayModal(channel.id, mode));
 }
@@ -384,22 +404,36 @@ async function giveawayForm(interaction) {
   if (!isStaff(interaction.member)) {
     return interaction.reply({ content: 'Only staff can start giveaways.', flags: EPHEMERAL });
   }
-  if (data.rate <= 0) {
+  const [, channelId, mode] = interaction.customId.split(':');
+  if (mode !== 'gcash' && data.rate <= 0) {
     return interaction.reply({ content: rateMissingText(), flags: EPHEMERAL });
   }
-
-  const [, channelId, mode] = interaction.customId.split(':');
   const value = interaction.fields.getTextInputValue('gw_amount');
   const time = interaction.fields.getTextInputValue('gw_time');
   const winnersText = interaction.fields.getTextInputValue('gw_winners').trim();
 
-  // Robux amount or pesos -> always ends up as a Robux amount (same rules as the buy form)
-  const parsed = parseOrderAmount(mode === 'robux' ? value : '', mode === 'price' ? value : '');
-  if (parsed.error) {
-    return interaction.reply({ content: `${parsed.error} Run the command again.`, flags: EPHEMERAL });
+  let amount = null;
+  let priceText = null;
+  let pesos = null;
+  if (mode === 'gcash') {
+    // GCash prize: a plain amount of pesos
+    const clean = value.replace(/[,\s₱]/g, '');
+    if (!/^\d+$/.test(clean) || Number(clean) < 1 || Number(clean) > MAX_GCASH_PRIZE) {
+      return interaction.reply({
+        content: `The GCash prize must be a whole number of pesos from 1 to ${MAX_GCASH_PRIZE.toLocaleString('en-US')}. Run the command again.`,
+        flags: EPHEMERAL,
+      });
+    }
+    pesos = Number(clean);
+  } else {
+    // Robux amount or pesos -> always ends up as a Robux amount (same rules as the buy form)
+    const parsed = parseOrderAmount(mode === 'robux' ? value : '', mode === 'price' ? value : '');
+    if (parsed.error) {
+      return interaction.reply({ content: `${parsed.error} Run the command again.`, flags: EPHEMERAL });
+    }
+    amount = parsed.amount;
+    priceText = formatPrice(amount);
   }
-  const amount = parsed.amount;
-  const priceText = formatPrice(amount);
 
   const ms = parseDuration(time);
   if (!ms) {
@@ -436,10 +470,12 @@ async function giveawayForm(interaction) {
   const g = {
     id: null,
     channelId: channel.id,
-    // Shown everywhere: the Robux amount with what it is worth in pesos beside it
-    prize: `${amount.toLocaleString('en-US')} Robux (${priceText})`,
+    kind: mode === 'gcash' ? 'gcash' : 'robux',
+    // Shown everywhere: the Robux amount with what it is worth in pesos beside it (or the GCash pesos)
+    prize: mode === 'gcash' ? `${formatPesos(pesos)} via GCash` : `${amount.toLocaleString('en-US')} Robux (${priceText})`,
     amount,
     priceText,
+    pesos,
     hostId: interaction.user.id,
     hostAvatar: interaction.user.displayAvatarURL(),
     endsAt: Date.now() + ms,
@@ -566,23 +602,25 @@ async function leaveButton(interaction) {
 }
 
 // ---------- Claim ticket (the WINNER taps their Claim button) ----------
-function buildClaimModal(giveawayId, winnerId) {
+function buildClaimModal(giveawayId, winnerId, kind) {
+  const gcash = kind === 'gcash';
   const nameInput = new TextInputBuilder()
     .setCustomId('account_name')
-    .setLabel('Account name (display name)')
+    .setLabel(gcash ? 'GCash account name' : 'Account name (display name)')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMaxLength(50);
   const usernameInput = new TextInputBuilder()
     .setCustomId('account_username')
-    .setLabel('Account username')
+    .setLabel(gcash ? 'GCash number (09XXXXXXXXX)' : 'Account username')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setMaxLength(50);
+    .setMaxLength(gcash ? 20 : 50);
+  if (gcash) usernameInput.setPlaceholder('09123456789');
 
   return new ModalBuilder()
     .setCustomId(`gw_claim_form:${giveawayId}:${winnerId}`)
-    .setTitle('Claim Your Prize')
+    .setTitle(gcash ? 'Claim Your GCash Prize' : 'Claim Your Prize')
     .addComponents(
       new ActionRowBuilder().addComponents(nameInput),
       new ActionRowBuilder().addComponents(usernameInput)
@@ -612,7 +650,7 @@ async function claimButton(interaction) {
   if (check.error) {
     return interaction.reply({ content: check.error, flags: EPHEMERAL });
   }
-  return interaction.showModal(buildClaimModal(giveawayId, winnerId));
+  return interaction.showModal(buildClaimModal(giveawayId, winnerId, check.g.kind));
 }
 
 // Popup submitted -> create the private claim ticket
@@ -624,8 +662,21 @@ async function claimForm(interaction) {
   }
   const g = check.g;
 
+  const gcash = g.kind === 'gcash';
   const name = interaction.fields.getTextInputValue('account_name').trim();
-  const username = interaction.fields.getTextInputValue('account_username').trim();
+  let username = interaction.fields.getTextInputValue('account_username').trim();
+
+  // GCash number: accept 09XXXXXXXXX, 9XXXXXXXXX with +63 / 63, spaces or dashes. Saved as 09XXXXXXXXX.
+  if (gcash) {
+    const match = username.replace(/[\s-]/g, '').match(/^(?:\+?63|0)(9\d{9})$/);
+    if (!match) {
+      return interaction.reply({
+        content: 'That does not look like a GCash number. Use the format `09XXXXXXXXX`. Tap **Claim** again and try once more.',
+        flags: EPHEMERAL,
+      });
+    }
+    username = `0${match[1]}`;
+  }
 
   await interaction.deferReply({ flags: EPHEMERAL });
 
@@ -667,13 +718,15 @@ async function claimForm(interaction) {
     .setTitle('🎁  Giveaway Claim')
     .setDescription(
       `## Congratulations!\n${prizeHeadline(g)}\n${LINE}\n` +
-        'Staff will send your prize to the account below.\n' +
-        'After you receive it, tap **Vouch** to confirm the giveaway is real. Thank you!'
+      (gcash
+        ? 'Staff will send your prize to the GCash number below. Please make sure it is correct.\n'
+        : 'Staff will send your prize to the account below.\n') +
+      'After you receive it, tap **Vouch** to confirm the giveaway is real. Thank you!'
     )
     .setThumbnail(interaction.user.displayAvatarURL())
     .addFields(
-      { name: 'Account Name', value: name, inline: true },
-      { name: 'Account Username', value: username, inline: true },
+      { name: gcash ? 'GCash Name' : 'Account Name', value: name, inline: true },
+      { name: gcash ? 'GCash Number' : 'Account Username', value: username, inline: true },
       { name: 'Prize', value: g.prize, inline: true },
       { name: 'Winner', value: `${interaction.user}`, inline: true },
       { name: 'Giveaway', value: `[Jump to giveaway](${giveawayLink(g)})`, inline: true },
@@ -746,7 +799,7 @@ async function markPrizeSent(message, channel, user, proof) {
 
   setField(embed, 'Status', `Sent by ${user}`);
   await message.edit({ embeds: [embed], components: [closeRow()] });
-  channel.setName(retag(channel.name, 'sent')).catch(() => {});
+  channel.setName(retag(channel.name, 'sent')).catch(() => { });
 
   const sentOptions = {
     userId: getCustomerId(channel),
@@ -789,9 +842,10 @@ async function markPrizeSent(message, channel, user, proof) {
     ticketMessage('vouch', {
       title: '⭐  Leave a Vouch',
       text:
-        '### 📦  Check your account!\n' +
+        (hasField(embed, 'GCash Number') ? '### 📦  Check your GCash!\n' : '### 📦  Check your account!\n') +
         `${LINE}\n` +
-        'Please check your account, then tap **Vouch** below to confirm the giveaway is real. Thank you!',
+        (hasField(embed, 'GCash Number') ? 'Please check your GCash' : 'Please check your account') +
+        ', then tap **Vouch** below to confirm the giveaway is real. Thank you!',
       components: [
         new ActionRowBuilder().addComponents(btn(`gw_vouch:${message.id}`, 'Vouch')),
       ],
@@ -1019,7 +1073,7 @@ async function vouchForm(interaction) {
   await mainMessage.edit({ embeds: [ticketEmbed], components: [closeRow()] });
 
   if (!interaction.channel.name.startsWith('done-')) {
-    interaction.channel.setName(retag(interaction.channel.name, 'done')).catch(() => {});
+    interaction.channel.setName(retag(interaction.channel.name, 'done')).catch(() => { });
   }
 
   await interaction.channel.send({

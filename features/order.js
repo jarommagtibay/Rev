@@ -32,7 +32,9 @@ const {
   postReceipt,
 } = require('../core/ticket');
 const { refreshQueue, removeFromQueue } = require('../core/queue');
+const { updateTicketLogOrder } = require('../core/audit');
 const {
+  syncOrderAmount,
   markProcessing,
   markSent,
   showSentModal,
@@ -103,7 +105,7 @@ async function sentForm(interaction) {
     );
   }
 
-  const message = await interaction.channel.messages.fetch(entry.messageId);
+  const message = await interaction.channel.messages.fetch({ message: entry.messageId, force: true });
   const result = await markSent(
     message,
     interaction.channel,
@@ -209,7 +211,7 @@ async function editOrderForm(interaction) {
 
   await interaction.deferReply({ flags: EPHEMERAL });
 
-  const message = await interaction.channel.messages.fetch(entry.messageId);
+  const message = await interaction.channel.messages.fetch({ message: entry.messageId, force: true });
   const embed = EmbedBuilder.from(message.embeds[0]);
   const fields = (embed.data.fields || []).map((f) => {
     if (f.name === 'Robux Amount') return { ...f, value: amount.toLocaleString() };
@@ -221,8 +223,13 @@ async function editOrderForm(interaction) {
   embed.setFooter({ text: `Rate: ${CURRENCY}${data.rate} per 100 Robux` });
   await message.edit({ embeds: [embed] });
 
+  // Keep the first amount so the ticket log can show "originally ..."
+  if (!entry.originalAmount) entry.originalAmount = entry.amount;
   entry.amount = amount;
   saveData();
+
+  // Update the ticket log (audit channel) with the new amount (not awaited, never blocks)
+  updateTicketLogOrder(entry, amount, formatPrice(amount));
 
   await interaction.channel.send({
     content: `<@${entry.userId}>`,
@@ -232,8 +239,8 @@ async function editOrderForm(interaction) {
         .setTitle(fill(M.orderUpdated.title))
         .setDescription(
           fill(M.orderUpdated.text, { staff: `${interaction.user}` }) +
-            '\n\n' +
-            orderHeadline(`${amount.toLocaleString()} Robux`, formatPrice(amount))
+          '\n\n' +
+          orderHeadline(`${amount.toLocaleString()} Robux`, formatPrice(amount))
         )
         .setTimestamp(),
     ],
@@ -260,7 +267,12 @@ async function completeOrderButton(interaction) {
     });
   }
 
-  const amount = getAmount(embed);
+  let amount = getAmount(embed);
+  const entry = data.queue.find((e) => e.channelId === interaction.channel.id);
+  if (isRobuxOrder(embed) && entry && entry.amount > 0 && entry.amount !== amount) {
+    amount = entry.amount;
+    syncOrderAmount(embed, amount);
+  }
 
   // Stock was already deducted when the order was marked as Sent
   // (only Robux orders use stock, game orders skip it)
@@ -297,7 +309,7 @@ async function completeOrderButton(interaction) {
   // Rename the finished ticket to done-username
   interaction.channel
     .setName(`done-${baseName(interaction.channel.name)}`)
-    .catch(() => {});
+    .catch(() => { });
 
   const customerId = getCustomerId(interaction.channel);
   await interaction.channel.send(

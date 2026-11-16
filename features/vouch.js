@@ -149,7 +149,7 @@ async function vouchForm(interaction) {
   else await interaction.deferReply({ flags: EPHEMERAL });
 
   const mainMessageId = interaction.customId.split(':')[1];
-  const mainMessage = await interaction.channel.messages.fetch(mainMessageId);
+  const mainMessage = await interaction.channel.messages.fetch({ message: mainMessageId, force: true });
   const ticketEmbed = EmbedBuilder.from(mainMessage.embeds[0]);
 
   if (isVouched(ticketEmbed)) {
@@ -237,7 +237,7 @@ async function vouchForm(interaction) {
     await postReceipt(ticketEmbed, interaction.channel);
     interaction.channel
       .setName(`done-${baseName(interaction.channel.name)}`)
-      .catch(() => {});
+      .catch(() => { });
     await interaction.channel.send(
       ticketMessage('thanks', {
         userId: interaction.user.id,

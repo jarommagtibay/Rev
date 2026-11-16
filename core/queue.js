@@ -12,7 +12,7 @@ async function refreshQueue(guild) {
     const entry = data.queue[i];
     try {
       const channel = await guild.channels.fetch(entry.channelId);
-      const message = await channel.messages.fetch(entry.messageId);
+      const message = await channel.messages.fetch({ message: entry.messageId, force: true });
       const embed = EmbedBuilder.from(message.embeds[0]);
       setPositionField(embed, `#${i + 1}`);
       await message.edit({ embeds: [embed] });
@@ -21,7 +21,7 @@ async function refreshQueue(guild) {
       // (not awaited: Discord limits renames to about 2 per 10 minutes per channel)
       const wanted = `queue-${i + 1}-${entry.safeName || baseName(channel.name)}`;
       if (channel.name !== wanted) {
-        channel.setName(wanted).catch(() => {});
+        channel.setName(wanted).catch(() => { });
       }
 
       // Tell the customer when they reach the front

@@ -9,7 +9,7 @@ const {
   ModalBuilder,
 } = require('discord.js');
 const { COLOR } = require('../config');
-const { data, saveData } = require('./data');
+const { data, saveData, formatPrice } = require('./data');
 const M = require('../messages');
 const {
   EPHEMERAL,
@@ -20,6 +20,7 @@ const {
   baseName,
 } = require('./helpers');
 const {
+  orderHeadline,
   setPositionField,
   setStatusField,
   stageFromEmbed,
@@ -74,6 +75,18 @@ async function markProcessing(message, channel, user) {
   return {};
 }
 
+// The queue entry holds the real amount (Edit Order saves it there). If the order message still
+// shows an older amount, fix it, so the stock, the ticket and the receipt all use the same number.
+function syncOrderAmount(embed, amount) {
+  const fields = (embed.data.fields || []).map((f) => {
+    if (f.name === 'Robux Amount') return { ...f, value: amount.toLocaleString() };
+    if (f.name === 'Price') return { ...f, value: formatPrice(amount) };
+    return f;
+  });
+  embed.setFields(fields);
+  embed.setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPrice(amount)));
+}
+
 // Deducts the stock, takes the order out of the queue and posts the Vouch button
 async function markSent(message, channel, guild, user, proof) {
   const embed = EmbedBuilder.from(message.embeds[0]);
@@ -84,7 +97,12 @@ async function markSent(message, channel, guild, user, proof) {
 
   // Only Robux orders use the Robux stock. Game orders (ML / HOK / CODM) skip it.
   const robux = isRobuxOrder(embed);
-  const amount = getAmount(embed);
+  let amount = getAmount(embed);
+  const entry = data.queue.find((e) => e.channelId === channel.id);
+  if (robux && entry && entry.amount > 0 && entry.amount !== amount) {
+    amount = entry.amount;
+    syncOrderAmount(embed, amount);
+  }
   if (robux && amount > data.stock) {
     return {
       error: `Not enough stock to send this order. Stock is **${data.stock.toLocaleString()}**, order needs **${amount.toLocaleString()}**. Update it with \`/${M.commandNames.setup}\`.`,
@@ -100,7 +118,7 @@ async function markSent(message, channel, guild, user, proof) {
   await message.edit({ embeds: [embed], components: ticketRows('sent') });
 
   // Rename the ticket to sent-username
-  channel.setName(`sent-${baseName(channel.name)}`).catch(() => {});
+  channel.setName(`sent-${baseName(channel.name)}`).catch(() => { });
 
   // Order sent message (text inside the embed, proof picture under it),
   // then a new message at the bottom with the Vouch button
@@ -186,7 +204,7 @@ async function showSentModal(interaction) {
   if (!FileUploadBuilder || !LabelBuilder) {
     console.warn('This discord.js version has no file upload popup. Run: npm install discord.js@latest');
     await interaction.deferReply({ flags: EPHEMERAL });
-    const message = await interaction.channel.messages.fetch(entry.messageId);
+    const message = await interaction.channel.messages.fetch({ message: entry.messageId, force: true });
     const result = await markSent(message, interaction.channel, interaction.guild, interaction.user, null);
     return interaction.editReply(
       result.error || 'Order marked as sent. (No proof popup: discord.js needs updating.)'
@@ -226,7 +244,7 @@ async function runOrderCommand(interaction) {
     );
   }
 
-  const message = await interaction.channel.messages.fetch(entry.messageId);
+  const message = await interaction.channel.messages.fetch({ message: entry.messageId, force: true });
   const cmd = interaction.commandName;
 
   let result;
@@ -243,6 +261,7 @@ async function runOrderCommand(interaction) {
 }
 
 module.exports = {
+  syncOrderAmount,
   markPaymentReceived,
   markProcessing,
   markSent,

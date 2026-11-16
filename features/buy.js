@@ -182,7 +182,7 @@ async function createTicket(interaction) {
 
   await sendPaymentMessage(channel, formatPrice(amount), `${amount.toLocaleString()} Robux`);
 
-  data.queue.push({
+  const entry = {
     channelId: channel.id,
     messageId: message.id,
     userId: interaction.user.id,
@@ -192,7 +192,8 @@ async function createTicket(interaction) {
     amount,
     joinedAt: Date.now(),
     notifiedNext: false,
-  });
+  };
+  data.queue.push(entry);
   saveData();
 
   // Record who opened the ticket in the audit channel (not awaited, never blocks the customer)
@@ -204,6 +205,12 @@ async function createTicket(interaction) {
       { name: 'Account Name', value: name },
       { name: 'Account Username', value: username },
     ],
+  }).then((id) => {
+    // Remember the log message, so Edit Order can update the amount in it
+    if (id) {
+      entry.auditMessageId = id;
+      saveData();
+    }
   });
 
   // Greet them with their position (and ping them if they're first)

@@ -90,11 +90,13 @@ function findOpenTickets(guild, userId, product) {
 
 // Returns a message for the customer if they already have the maximum, otherwise null
 function ticketLimitMessage(guild, userId, product, productName) {
+  // If config.js is missing the setting (old copy), fall back to 2 instead of blocking everyone
+  const limit = Number(MAX_TICKETS_PER_PRODUCT) || 2;
   const open = findOpenTickets(guild, userId, product);
-  if (open.length < MAX_TICKETS_PER_PRODUCT) return null;
+  if (open.length < limit) return null;
   return (
     `You already have ${open.length} open ${productName} ticket${open.length === 1 ? '' : 's'} ` +
-    `(the limit is ${MAX_TICKETS_PER_PRODUCT}): ${open.join(', ')}\n` +
+    `(the limit is ${limit}): ${open.join(', ')}\n` +
     'Please finish or close one before opening another.'
   );
 }
