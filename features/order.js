@@ -31,7 +31,7 @@ const {
   vouchRow,
   postReceipt,
 } = require('../core/ticket');
-const { refreshQueue, removeFromQueue } = require('../core/queue');
+const { refreshQueue, removeFromQueue, availableStock, notEnoughStockMessage } = require('../core/queue');
 const { updateTicketLogOrder } = require('../core/audit');
 const {
   syncOrderAmount,
@@ -202,11 +202,10 @@ async function editOrderForm(interaction) {
   }
   const amount = parsed.amount;
 
-  if (amount > data.stock) {
-    return interaction.reply({
-      content: `Not enough stock. We only have **${data.stock.toLocaleString()}** Robux available.`,
-      flags: EPHEMERAL,
-    });
+  // Stock left after every OTHER waiting order (this order's own old amount does not count)
+  const available = availableStock(interaction.channel.id);
+  if (amount > available) {
+    return interaction.reply({ content: notEnoughStockMessage(available), flags: EPHEMERAL });
   }
 
   await interaction.deferReply({ flags: EPHEMERAL });

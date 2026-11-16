@@ -18,10 +18,22 @@ const {
   createTicketChannel,
   sendPaymentMessage,
 } = require('../core/ticket');
-const { refreshQueue } = require('../core/queue');
+const { refreshQueue, availableStock, notEnoughStockMessage } = require('../core/queue');
 const { logTicketCreated } = require('../core/audit');
 
 const commands = [];
+
+// Returns a message if nobody can order right now, otherwise null.
+// Stock that is already taken by orders waiting in the queue does not count.
+function stockBlockMessage() {
+  if (data.stock <= 0 || data.rate <= 0) {
+    return 'Sorry, we are out of Robux stock right now. Please check back later.';
+  }
+  if (availableStock() <= 0) {
+    return 'All of our Robux stock is already reserved by orders in the queue. Please check back later.';
+  }
+  return null;
+}
 
 // Buy button -> ask how they want to order (Robux amount or price)
 async function showChoice(interaction) {
@@ -29,11 +41,9 @@ async function showChoice(interaction) {
     return interaction.reply({ content: SHOP_CLOSED_TEXT, flags: EPHEMERAL });
   }
 
-  if (data.stock <= 0 || data.rate <= 0) {
-    return interaction.reply({
-      content: 'Sorry, we are out of Robux stock right now. Please check back later.',
-      flags: EPHEMERAL,
-    });
+  const stockMessage = stockBlockMessage();
+  if (stockMessage) {
+    return interaction.reply({ content: stockMessage, flags: EPHEMERAL });
   }
 
   const limitMessage = ticketLimitMessage(interaction.guild, interaction.user.id, 'robux', 'Robux');
@@ -65,11 +75,9 @@ async function showForm(interaction) {
     return interaction.reply({ content: SHOP_CLOSED_TEXT, flags: EPHEMERAL });
   }
 
-  if (data.stock <= 0 || data.rate <= 0) {
-    return interaction.reply({
-      content: 'Sorry, we are out of Robux stock right now. Please check back later.',
-      flags: EPHEMERAL,
-    });
+  const stockMessage = stockBlockMessage();
+  if (stockMessage) {
+    return interaction.reply({ content: stockMessage, flags: EPHEMERAL });
   }
 
   const limitMessage = ticketLimitMessage(interaction.guild, interaction.user.id, 'robux', 'Robux');
@@ -140,11 +148,9 @@ async function createTicket(interaction) {
   }
   const amount = parsed.amount;
 
-  if (amount > data.stock) {
-    return interaction.reply({
-      content: `Not enough stock. We only have **${data.stock.toLocaleString()}** Robux available.`,
-      flags: EPHEMERAL,
-    });
+  const available = availableStock();
+  if (amount > available) {
+    return interaction.reply({ content: notEnoughStockMessage(available), flags: EPHEMERAL });
   }
 
   await interaction.deferReply({ flags: EPHEMERAL });
@@ -181,6 +187,14 @@ async function createTicket(interaction) {
   });
 
   await sendPaymentMessage(channel, formatPrice(amount), `${amount.toLocaleString()} Robux`);
+
+  // Check once more right before joining the queue: another customer may have ordered while this
+  // ticket was being created. (No waiting happens between this check and the queue push below.)
+  const availableNow = availableStock();
+  if (amount > availableNow) {
+    await channel.delete().catch(() => { });
+    return interaction.editReply(notEnoughStockMessage(availableNow));
+  }
 
   const entry = {
     channelId: channel.id,
