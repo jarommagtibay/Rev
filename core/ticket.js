@@ -77,7 +77,7 @@ function getAmount(embed) {
 
 // Buttons shown in the ticket depending on the order stage
 // paid = true once staff marked the payment as received (hides that button)
-// canEdit = false for game orders (no Edit Order button)
+// canEdit is not used anymore: Edit Order now shows for Robux AND game orders
 function ticketRows(stage, paid, canEdit = true) {
   const btn = (id, label, style) =>
     new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style);
@@ -103,7 +103,7 @@ function ticketRows(stage, paid, canEdit = true) {
     btn('order_processing', 'Processing', ButtonStyle.Danger),
     btn('order_sent', 'Sent', ButtonStyle.Danger)
   );
-  if (canEdit) staffButtons.push(btn('edit_order', 'Edit Order', ButtonStyle.Danger));
+  staffButtons.push(btn('edit_order', 'Edit Order', ButtonStyle.Danger));
   staffButtons.push(btn('complete_order', 'Complete Order (Staff)', ButtonStyle.Danger));
 
   return [

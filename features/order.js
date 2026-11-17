@@ -1,15 +1,17 @@
-// Order progress: Processing, Sent (with proof), Edit Order, Complete Order
+// Order progress: Processing, Sent (with proof), Edit Order (button + /edit command), Complete Order
 const {
   ActionRowBuilder,
   EmbedBuilder,
   ModalBuilder,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
 } = require('discord.js');
 const { CURRENCY, COLOR } = require('../config');
 const M = require('../messages');
-const { data, saveData, formatPrice } = require('../core/data');
+const { GAMES } = require('../catalog');
+const { data, saveData, formatPrice, formatPeso } = require('../core/data');
 const {
   EPHEMERAL,
   isStaff,
@@ -32,7 +34,7 @@ const {
   postReceipt,
 } = require('../core/ticket');
 const { refreshQueue, removeFromQueue, availableStock, notEnoughStockMessage } = require('../core/queue');
-const { updateTicketLogOrder } = require('../core/audit');
+const { updateTicketLogOrder, updateTicketLogGameOrder } = require('../core/audit');
 const {
   syncOrderAmount,
   markProcessing,
@@ -41,6 +43,9 @@ const {
   runOrderCommand,
 } = require('../core/orderActions');
 
+// Command name. You can change it in messages.js by adding  editorder: 'edit',  to commandNames.
+const EDIT_COMMAND = M.commandNames.editorder || 'edit';
+
 const commands = [
   new SlashCommandBuilder()
     .setName(M.commandNames.processing)
@@ -48,6 +53,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName(M.commandNames.sent)
     .setDescription('Staff only: mark this ticket\'s order as sent (attach proof picture)'),
+  new SlashCommandBuilder()
+    .setName(EDIT_COMMAND)
+    .setDescription('Staff only: edit this ticket\'s order (Robux or game credits)'),
 ];
 
 // Processing button -> staff only
@@ -117,15 +125,9 @@ async function sentForm(interaction) {
   return interaction.editReply(result.error || '📦 Order marked as sent with proof.');
 }
 
-// Edit Order button -> staff changes the Robux amount or the price
-async function editOrderButton(interaction) {
-  if (!isStaff(interaction.member)) {
-    return interaction.reply({
-      content: 'Only staff can edit orders.',
-      flags: EPHEMERAL,
-    });
-  }
-
+// Builds the Edit popup for a ticket (Robux popup or game popup).
+// Used by the Edit Order button and the /edit command (staff check is done before calling this).
+async function showEditModal(interaction) {
   const entry = data.queue.find((e) => e.channelId === interaction.channel.id);
   if (!entry) {
     return interaction.reply({
@@ -134,13 +136,36 @@ async function editOrderButton(interaction) {
     });
   }
 
+  // ----- Game credits order: package, price and the ID fields -----
   if (entry.type === 'game') {
+    const game = GAMES[entry.game];
+    if (!game) {
+      return interaction.reply({
+        content: 'This game is not in catalog.js anymore, so the order can\'t be edited.',
+        flags: EPHEMERAL,
+      });
+    }
+
+    // Same dropdown as the buy part: pick the new package, the price comes from catalog.js
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId('edit_game_pkg')
+      .setPlaceholder(`Current: ${entry.label}. Choose the new package`)
+      .addOptions(
+        game.packages.slice(0, 25).map((p, i) => ({
+          label: p.label,
+          description: formatPeso(p.price),
+          value: String(i),
+        }))
+      );
+
     return interaction.reply({
-      content: 'Game orders can\'t be edited. Close this ticket and ask the customer to order again.',
+      content: `**Edit ${game.name} order**\nCurrent: **${entry.label}** for **${formatPeso(entry.price)}**\nChoose the new package.`,
+      components: [new ActionRowBuilder().addComponents(menu)],
       flags: EPHEMERAL,
     });
   }
 
+  // ----- Robux order: amount or price -----
   const modal = new ModalBuilder()
     .setCustomId('edit_order_form')
     .setTitle('Edit Order');
@@ -169,6 +194,95 @@ async function editOrderButton(interaction) {
   return interaction.showModal(modal);
 }
 
+// Edit Order button -> staff only
+async function editOrderButton(interaction) {
+  if (!isStaff(interaction.member)) {
+    return interaction.reply({
+      content: 'Only staff can edit orders.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  return showEditModal(interaction);
+}
+
+// New package picked in the Edit dropdown -> update the order, the ticket log and tell the customer
+async function editGameSelect(interaction) {
+  if (!isStaff(interaction.member)) {
+    return interaction.reply({
+      content: 'Only staff can edit orders.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  const entry = data.queue.find((e) => e.channelId === interaction.channel.id);
+  if (!entry || entry.type !== 'game') {
+    return interaction.update({
+      content: 'This order is no longer in the queue, so it can\'t be edited.',
+      components: [],
+    });
+  }
+  const game = GAMES[entry.game];
+  const pkg = game && game.packages[Number(interaction.values[0])];
+  if (!pkg) {
+    return interaction.update({
+      content: 'That package is not available anymore. Press Edit Order again.',
+      components: [],
+    });
+  }
+
+  if (pkg.label === entry.label && pkg.price === entry.price) {
+    return interaction.update({ content: 'Nothing was changed (same package).', components: [] });
+  }
+
+  await interaction.deferUpdate();
+
+  const message = await interaction.channel.messages.fetch({ message: entry.messageId, force: true });
+  const embed = EmbedBuilder.from(message.embeds[0]);
+  const fields = (embed.data.fields || []).map((f) => {
+    if (f.name === 'Package') return { ...f, value: pkg.label };
+    if (f.name === 'Price') return { ...f, value: formatPeso(pkg.price) };
+    return f;
+  });
+  embed.setFields(fields);
+  embed.setDescription(orderHeadline(`${pkg.label}  •  ${game.name}`, formatPeso(pkg.price), '🎮'));
+  await message.edit({ embeds: [embed] });
+
+  // Keep the first package so the ticket log can show "originally ..."
+  if (!entry.originalLabel) {
+    entry.originalLabel = entry.label;
+    entry.originalPrice = entry.price;
+  }
+  entry.label = pkg.label;
+  entry.price = pkg.price;
+  saveData();
+
+  // Update the ticket log (audit channel), not awaited, never blocks
+  updateTicketLogGameOrder(
+    entry,
+    `${pkg.label}  •  ${game.name}`,
+    formatPeso(pkg.price),
+    `${entry.originalLabel} (${formatPeso(entry.originalPrice)})`
+  );
+
+  await interaction.channel.send({
+    content: `<@${entry.userId}>`,
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLOR)
+        .setTitle(fill(M.orderUpdated.title))
+        .setDescription(
+          fill(M.orderUpdated.text, { staff: `${interaction.user}` }) +
+          '\n\n' +
+          orderHeadline(`${pkg.label}  •  ${game.name}`, formatPeso(pkg.price), '🎮')
+        )
+        .setTimestamp(),
+    ],
+  });
+
+  return interaction.editReply({ content: '✏️ Order updated.', components: [] });
+}
+
 // Edit form submitted -> update the order amount and price
 async function editOrderForm(interaction) {
   if (!isStaff(interaction.member)) {
@@ -188,7 +302,7 @@ async function editOrderForm(interaction) {
 
   if (entry.type === 'game') {
     return interaction.reply({
-      content: 'Game orders can\'t be edited. Close this ticket and ask the customer to order again.',
+      content: 'Use the Edit Order button for game orders.',
       flags: EPHEMERAL,
     });
   }
@@ -358,6 +472,28 @@ async function handle(interaction) {
       await editOrderForm(interaction);
       return true;
     }
+  }
+
+  if (interaction.isStringSelectMenu() && interaction.customId === 'edit_game_pkg') {
+    await editGameSelect(interaction);
+    return true;
+  }
+
+  // /edit -> same popup as the Edit Order button (staff only, inside a ticket)
+  if (interaction.isChatInputCommand() && interaction.commandName === EDIT_COMMAND) {
+    if (!isStaff(interaction.member)) {
+      await interaction.reply({ content: 'Only staff can use this command.', flags: EPHEMERAL });
+      return true;
+    }
+    if (!(interaction.channel.topic || '').startsWith('ticket:')) {
+      await interaction.reply({
+        content: 'This command only works inside a ticket channel.',
+        flags: EPHEMERAL,
+      });
+      return true;
+    }
+    await showEditModal(interaction);
+    return true;
   }
 
   if (

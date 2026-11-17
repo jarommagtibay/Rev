@@ -156,13 +156,13 @@ async function createTicket(interaction) {
   const message = await channel.send({
     content: `${interaction.user} <@&${STAFF_ROLE_ID}>`,
     embeds: [embed],
-    components: ticketRows('open', false, false), // no Edit Order button for game orders
+    components: ticketRows('open', false),
     allowedMentions: { parse: ['users', 'roles'] },
   });
 
   await sendPaymentMessage(channel, formatPeso(pkg.price), `${pkg.label} (${game.name})`);
 
-  data.queue.push({
+  const entry = {
     channelId: channel.id,
     messageId: message.id,
     userId: interaction.user.id,
@@ -177,7 +177,8 @@ async function createTicket(interaction) {
     amount: 0,
     joinedAt: Date.now(),
     notifiedNext: false,
-  });
+  };
+  data.queue.push(entry);
   saveData();
 
   // Record who opened the ticket in the audit channel (not awaited, never blocks the customer)
@@ -186,6 +187,12 @@ async function createTicket(interaction) {
     item: `${pkg.label}  •  ${game.name}`,
     price: formatPeso(pkg.price),
     details: game.fields.map((f) => ({ name: f.label, value: values[f.id] })),
+  }).then((id) => {
+    // Remember the log message, so Edit Order can update the package in it
+    if (id) {
+      entry.auditMessageId = id;
+      saveData();
+    }
   });
 
   // Greet them with their position (and ping them if they're first)
