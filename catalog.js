@@ -24,6 +24,8 @@ const GAMES = {
       { label: '448 Diamonds', price: 458 },
       { label: '457 Diamonds', price: 470 },
       { label: '560 Diamonds', price: 573 },
+      { label: '906 Diamonds', price: 921 },
+      { label: '1163 Diamonds', price: 1150 },
       { label: 'Weekly Elite Bundle', price: 60 },
       { label: 'Monthly Epic Bundle', price: 284 },
       { label: 'Weekly Diamond Pass', price: 123 },
