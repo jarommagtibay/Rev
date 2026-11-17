@@ -127,16 +127,20 @@ async function markSent(message, channel, guild, user, proof) {
     ...fromTemplate(M.sent, { staff: user.username, item: robux ? 'Robux' : 'order' }),
   };
 
-  if (proof) {
-    const ext = (path.extname(proof.name || '') || '.png').toLowerCase();
-    const proofName = `proof${ext}`;
-    sentOptions.extraEmbeds = [
-      new EmbedBuilder()
-        .setTitle(M.sent.proofTitle)
-        .setColor(COLOR)
-        .setImage(`attachment://${proofName}`),
-    ];
-    sentOptions.extraFiles = [new AttachmentBuilder(proof.url, { name: proofName })];
+  const proofs = Array.isArray(proof) ? proof : proof ? [proof] : [];
+
+  if (proofs.length) {
+    const proofName = (idx, ext) => (proofs.length === 1 ? `proof${ext}` : `proof-${idx + 1}${ext}`);
+    sentOptions.extraFiles = proofs.map((p, idx) => {
+      const ext = (path.extname(p.name || '') || '.png').toLowerCase();
+      return new AttachmentBuilder(p.url, { name: proofName(idx, ext) });
+    });
+    sentOptions.extraEmbeds = proofs.map((p, idx) => {
+      const ext = (path.extname(p.name || '') || '.png').toLowerCase();
+      const b = new EmbedBuilder().setColor(COLOR).setImage(`attachment://${proofName(idx, ext)}`);
+      if (idx === 0) b.setTitle(M.sent.proofTitle);
+      return b;
+    });
   }
 
   try {
@@ -150,9 +154,11 @@ async function markSent(message, channel, guild, user, proof) {
         title: sentOptions.title,
         text: sentOptions.text,
         footer: sentOptions.footer,
-        extraEmbeds: proof
-          ? [new EmbedBuilder().setTitle(M.sent.proofTitle).setColor(COLOR).setImage(proof.url)]
-          : [],
+        extraEmbeds: proofs.map((p, idx) => {
+          const b = new EmbedBuilder().setColor(COLOR).setImage(p.url);
+          if (idx === 0) b.setTitle(M.sent.proofTitle);
+          return b;
+        }),
       })
     );
   }
@@ -168,13 +174,15 @@ async function markSent(message, channel, guild, user, proof) {
   return {};
 }
 
-// Popup where staff attach the proof picture when marking an order as sent
+// Popup where staff attach the proof picture(s) when marking an order as sent
 function buildSentModal() {
   const upload = new FileUploadBuilder().setCustomId('proof').setRequired(true);
+  if (typeof upload.setMinValues === 'function') upload.setMinValues(1);
+  if (typeof upload.setMaxValues === 'function') upload.setMaxValues(10);
 
   const label = new LabelBuilder()
     .setLabel('Proof of delivery')
-    .setDescription('Attach a picture showing the order was sent to the account')
+    .setDescription('Attach picture(s) showing the order was sent to the account')
     .setFileUploadComponent(upload);
 
   return new ModalBuilder()

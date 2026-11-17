@@ -106,12 +106,17 @@ async function sentForm(interaction) {
   }
 
   const files = interaction.fields.getUploadedFiles('proof');
-  const attachment = files && files.first();
-  if (!attachment || !(attachment.contentType || '').startsWith('image/')) {
+  const validFiles = files ? files.filter((f) => (f.contentType || '').startsWith('image/')) : null;
+  if (!validFiles || validFiles.size === 0) {
     return interaction.editReply(
-      'Please attach a picture (PNG or JPG). Press **Sent** again and try once more.'
+      'Please attach at least one picture (PNG or JPG). Press **Sent** again and try once more.'
     );
   }
+
+  const proofs = validFiles.map((attachment) => ({
+    url: attachment.url,
+    name: attachment.name,
+  }));
 
   const message = await interaction.channel.messages.fetch({ message: entry.messageId, force: true });
   const result = await markSent(
@@ -119,10 +124,12 @@ async function sentForm(interaction) {
     interaction.channel,
     interaction.guild,
     interaction.user,
-    { url: attachment.url, name: attachment.name }
+    proofs
   );
 
-  return interaction.editReply(result.error || '📦 Order marked as sent with proof.');
+  return interaction.editReply(
+    result.error || `📦 Order marked as sent with ${proofs.length} proof picture${proofs.length === 1 ? '' : 's'}.`
+  );
 }
 
 // Builds the Edit popup for a ticket (Robux popup or game popup).
