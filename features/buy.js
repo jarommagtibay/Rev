@@ -169,8 +169,8 @@ async function createTicket(interaction) {
     .setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPrice(amount)))
     .setThumbnail(interaction.user.displayAvatarURL())
     .addFields(
-      { name: 'Account Name', value: name, inline: true },
-      { name: 'Account Username', value: username, inline: true },
+      { name: 'Account Name', value: `\`\`\`\n${name}\n\`\`\``, inline: true },
+      { name: 'Account Username', value: `\`\`\`\n${username}\n\`\`\``, inline: true },
       { name: 'Robux Amount', value: amount.toLocaleString(), inline: true },
       { name: 'Price', value: formatPrice(amount), inline: true },
       { name: 'Queue Position', value: `#${position}`, inline: true },

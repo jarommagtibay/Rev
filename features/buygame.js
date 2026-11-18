@@ -147,7 +147,7 @@ async function createTicket(interaction) {
       { name: 'Package', value: pkg.label, inline: true },
       { name: 'Price', value: formatPeso(pkg.price), inline: true },
       { name: 'Queue Position', value: `#${position}`, inline: true },
-      ...game.fields.map((f) => ({ name: f.label, value: values[f.id], inline: true })),
+      ...game.fields.map((f) => ({ name: f.label, value: `\`\`\`\n${values[f.id]}\n\`\`\``, inline: true })),
       { name: 'Opened by', value: `${interaction.user}` }
     )
     .setTimestamp();
