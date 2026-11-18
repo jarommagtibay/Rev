@@ -452,6 +452,77 @@ async function completeOrderButton(interaction) {
   await refreshQueue(interaction.guild);
 }
 
+// Copy Info button -> staff only. Opens a modal popup with prefilled fields so iPhone and mobile users can easily tap and copy.
+async function copyInfoButton(interaction) {
+  if (!isStaff(interaction.member)) {
+    return interaction.reply({
+      content: 'Only staff can use this button.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  const embed = interaction.message.embeds[0];
+  const fields = embed ? embed.fields || [] : [];
+  const clean = (val) => (val || '').replace(/```\n?/g, '').trim();
+
+  const isRobux = isRobuxOrder(embed);
+  const modal = new ModalBuilder()
+    .setCustomId('copy_info_modal')
+    .setTitle(isRobux ? 'Robux Order Details' : 'Game Order Details');
+
+  if (isRobux) {
+    const nameField = fields.find((f) => f.name === 'Account Name');
+    const userField = fields.find((f) => f.name === 'Account Username');
+    const name = nameField ? clean(nameField.value) : '-';
+    const username = userField ? clean(userField.value) : '-';
+
+    const nameInput = new TextInputBuilder()
+      .setCustomId('copy_name')
+      .setLabel('Account Name (tap to copy)')
+      .setStyle(TextInputStyle.Short)
+      .setValue(name)
+      .setRequired(false);
+
+    const userInput = new TextInputBuilder()
+      .setCustomId('copy_username')
+      .setLabel('Account Username (tap to copy)')
+      .setStyle(TextInputStyle.Short)
+      .setValue(username)
+      .setRequired(false);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(nameInput),
+      new ActionRowBuilder().addComponents(userInput)
+    );
+  } else {
+    const skip = new Set([
+      'Game',
+      'Package',
+      'Price',
+      'Queue Position',
+      'Opened by',
+      'Payment',
+      'Status',
+      'Vouch',
+      'Done',
+    ]);
+    const detailFields = fields.filter((f) => !skip.has(f.name)).slice(0, 5); // Discord allows up to 5 inputs
+
+    for (const f of detailFields) {
+      const input = new TextInputBuilder()
+        .setCustomId(`copy_${f.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`)
+        .setLabel(`${f.name} (tap to copy)`.slice(0, 45))
+        .setStyle(TextInputStyle.Short)
+        .setValue(clean(f.value))
+        .setRequired(false);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(input));
+    }
+  }
+
+  return interaction.showModal(modal);
+}
+
 async function handle(interaction) {
   if (interaction.isButton()) {
     switch (interaction.customId) {
@@ -467,10 +538,17 @@ async function handle(interaction) {
       case 'complete_order':
         await completeOrderButton(interaction);
         return true;
+      case 'copy_info':
+        await copyInfoButton(interaction);
+        return true;
     }
   }
 
   if (interaction.isModalSubmit()) {
+    if (interaction.customId === 'copy_info_modal') {
+      await interaction.reply({ content: '✅ Copied / closed.', flags: EPHEMERAL });
+      return true;
+    }
     if (interaction.customId === 'sent_form') {
       await sentForm(interaction);
       return true;

@@ -72,9 +72,9 @@ function ticketMessage(
   return message;
 }
 
-// Strips "ticket-", "queue-3-", "sent-" or "done-" from a channel name
+// Strips "ticket-", "queue-3-", "sent-", "done-" or "hold-" from a channel name
 function baseName(channelName) {
-  return channelName.replace(/^(ticket|queue-\d+|sent|done)-/, '');
+  return channelName.replace(/^(ticket|queue-\d+|sent|done|hold)-/, '');
 }
 
 // The topic is "ticket:<userId>:<product>" (older tickets: "ticket:<userId>")

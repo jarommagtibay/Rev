@@ -45,7 +45,11 @@ async function markPaymentReceived(message, channel, user) {
   }
 
   setPaymentField(embed, `Received by ${user}`);
-  await message.edit({ embeds: [embed], components: ticketRows(stage, true, isRobuxOrder(embed)) });
+  const entry = data.queue.find((e) => e.channelId === channel.id);
+  await message.edit({
+    embeds: [embed],
+    components: ticketRows(stage, true, isRobuxOrder(embed), Boolean(entry && entry.onHold)),
+  });
 
   await channel.send(
     ticketMessage('paymentReceived', {
@@ -64,7 +68,11 @@ async function markProcessing(message, channel, user) {
   }
 
   setStatusField(embed, `Processing by ${user}`);
-  await message.edit({ embeds: [embed], components: ticketRows('processing', isPaid(embed), isRobuxOrder(embed)) });
+  const entry = data.queue.find((e) => e.channelId === channel.id);
+  await message.edit({
+    embeds: [embed],
+    components: ticketRows('processing', isPaid(embed), isRobuxOrder(embed), Boolean(entry && entry.onHold)),
+  });
 
   await channel.send(
     ticketMessage('processing', {

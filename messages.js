@@ -32,6 +32,10 @@ const commandNames = {
   closeticket: 'close',      // staff: close the ticket
   calc: 'calc',              // everyone: Robux calculator (private)
   help: 'help',              // everyone: how to use the bot (private)
+  prices: 'prices',          // everyone: price list for Robux and all games
+  hold: 'hold',              // staff: put ticket on hold and adjust queue
+  unhold: 'unhold',          // staff: resume a held ticket
+  move: 'move',              // staff: move ticket position in queue
 };
 
 module.exports = {
@@ -184,7 +188,7 @@ module.exports = {
       },
       {
         name: '💬  Commands you can use',
-        text: `\`/${commandNames.stock}\`  Check the Robux stock and rate (only you can see it)\n\`/${commandNames.calc}\`  Robux calculator: Robux → price, or price → Robux (only you can see it)\n\`/${commandNames.help}\`  Show this guide (only you can see it)`,
+        text: `\`/${commandNames.stock}\`  Check the Robux stock and rate (only you can see it)\n\`/${commandNames.calc}\`  Robux calculator: Robux → price, or price → Robux (only you can see it)\n\`/${commandNames.prices}\`  Price list for everything in the shop (only you can see it)\n\`/${commandNames.help}\`  Show this guide (only you can see it)`,
       },
       {
         name: '📌  Good to know',

@@ -8,8 +8,11 @@ const { setPositionField } = require('./ticket');
 
 // Updates the position shown in every open ticket (embed + channel name)
 async function refreshQueue(guild) {
-  for (let i = 0; i < data.queue.length; i++) {
-    const entry = data.queue[i];
+  const activeQueue = data.queue.filter((e) => !e.onHold);
+
+  // Active queue: calculate #1, #2, #3...
+  for (let i = 0; i < activeQueue.length; i++) {
+    const entry = activeQueue[i];
     try {
       const channel = await guild.channels.fetch(entry.channelId);
       const message = await channel.messages.fetch({ message: entry.messageId, force: true });
@@ -41,6 +44,25 @@ async function refreshQueue(guild) {
       }
     } catch (err) {
       // channel or message is gone, ignore
+    }
+  }
+
+  // Held tickets: ⏸️ On Hold
+  const heldQueue = data.queue.filter((e) => e.onHold);
+  for (const entry of heldQueue) {
+    try {
+      const channel = await guild.channels.fetch(entry.channelId);
+      const message = await channel.messages.fetch({ message: entry.messageId, force: true });
+      const embed = EmbedBuilder.from(message.embeds[0]);
+      setPositionField(embed, '⏸️ On Hold');
+      await message.edit({ embeds: [embed] });
+
+      const wanted = `hold-${entry.safeName || baseName(channel.name)}`;
+      if (channel.name !== wanted) {
+        channel.setName(wanted).catch(() => { });
+      }
+    } catch (err) {
+      // ignore
     }
   }
 }

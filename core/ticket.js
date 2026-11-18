@@ -78,13 +78,18 @@ function getAmount(embed) {
 // Buttons shown in the ticket depending on the order stage
 // paid = true once staff marked the payment as received (hides that button)
 // canEdit is not used anymore: Edit Order now shows for Robux AND game orders
-function ticketRows(stage, paid, canEdit = true) {
+function ticketRows(stage, paid, canEdit = true, onHold = false) {
   const btn = (id, label, style) =>
     new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style);
 
   // After the order is completed only Close remains
   if (stage === 'completed') {
-    return [new ActionRowBuilder().addComponents(btn('close_ticket', 'Close Ticket', ButtonStyle.Danger))];
+    return [
+      new ActionRowBuilder().addComponents(
+        btn('copy_info', 'Copy Info', ButtonStyle.Danger),
+        btn('close_ticket', 'Close Ticket', ButtonStyle.Danger)
+      ),
+    ];
   }
 
   // After the order is sent: Complete (staff) or Close
@@ -92,6 +97,7 @@ function ticketRows(stage, paid, canEdit = true) {
     return [
       new ActionRowBuilder().addComponents(
         btn('complete_order', 'Complete Order (Staff)', ButtonStyle.Danger),
+        btn('copy_info', 'Copy Info', ButtonStyle.Danger),
         btn('close_ticket', 'Close Ticket', ButtonStyle.Danger)
       ),
     ];
@@ -108,7 +114,11 @@ function ticketRows(stage, paid, canEdit = true) {
 
   return [
     new ActionRowBuilder().addComponents(staffButtons),
-    new ActionRowBuilder().addComponents(btn('close_ticket', 'Close Ticket', ButtonStyle.Danger)),
+    new ActionRowBuilder().addComponents(
+      btn(onHold ? 'unhold_ticket' : 'hold_ticket', onHold ? 'Resume' : 'Hold', ButtonStyle.Danger),
+      btn('copy_info', 'Copy Info', ButtonStyle.Danger),
+      btn('close_ticket', 'Close Ticket', ButtonStyle.Danger)
+    ),
   ];
 }
 
