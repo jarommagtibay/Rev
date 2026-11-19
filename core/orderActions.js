@@ -9,7 +9,7 @@ const {
   ModalBuilder,
 } = require('discord.js');
 const { COLOR } = require('../config');
-const { data, saveData, formatPrice, formatPeso } = require('./data');
+const { data, saveData, formatPrice, formatPeso, recordStaffAction } = require('./data');
 const M = require('../messages');
 const {
   EPHEMERAL,
@@ -91,6 +91,7 @@ async function markProcessingUnlocked(message, channel, user) {
   }
 
   setStatusField(embed, `Processing by ${user}`);
+  recordStaffAction(user.id, user.username, 'processed');
   const entry = data.queue.find((e) => e.channelId === channel.id);
   await message.edit({
     embeds: [embed],
@@ -148,6 +149,7 @@ async function markSentUnlocked(message, channel, guild, user, proof) {
 
   if (robux) data.stock -= amount;
   removeFromQueue(channel.id);
+  recordStaffAction(user.id, user.username, 'sent');
   saveData();
 
   setPositionField(embed, 'Sent');

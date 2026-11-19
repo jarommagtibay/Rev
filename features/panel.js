@@ -39,6 +39,12 @@ async function postPanel(interaction) {
       .setLabel(M.buyPanel.robloxButton)
       .setStyle(ButtonStyle.Danger)
   );
+  buttons.push(
+    new ButtonBuilder()
+      .setCustomId('check_my_order')
+      .setLabel('📋 Check My Order')
+      .setStyle(ButtonStyle.Secondary)
+  );
 
   // Discord limits action rows to at most 5 buttons each (and at most 5 rows)
   const rows = [];

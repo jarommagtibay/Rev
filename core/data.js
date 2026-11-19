@@ -21,6 +21,7 @@ function loadData() {
       totalVouches: typeof d.totalVouches === 'number' ? d.totalVouches : 0,
       totalRobuxDelivered: typeof d.totalRobuxDelivered === 'number' ? d.totalRobuxDelivered : 0,
       blacklist: Array.isArray(d.blacklist) ? d.blacklist : [],
+      staffStats: d.staffStats && typeof d.staffStats === 'object' ? d.staffStats : {},
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -44,6 +45,7 @@ function loadData() {
       totalVouches: 0,
       totalRobuxDelivered: 0,
       blacklist: [],
+      staffStats: {},
     };
   }
 }
@@ -84,6 +86,21 @@ function orderPriceText(entry) {
   return formatPrice(entry.amount);
 }
 
+// Records staff activity for /staffstats (processed, sent, completed)
+function recordStaffAction(userId, username, actionType) {
+  if (!userId) return;
+  if (!data.staffStats) data.staffStats = {};
+  if (!data.staffStats[userId]) {
+    data.staffStats[userId] = { username, processed: 0, sent: 0, completed: 0 };
+  }
+  const s = data.staffStats[userId];
+  s.username = username || s.username;
+  if (actionType === 'processed') s.processed = (s.processed || 0) + 1;
+  else if (actionType === 'sent') s.sent = (s.sent || 0) + 1;
+  else if (actionType === 'completed') s.completed = (s.completed || 0) + 1;
+  saveData();
+}
+
 // Checks if a Discord user id is blacklisted from opening tickets
 function isBlacklisted(userId) {
   return Array.isArray(data.blacklist) && data.blacklist.some((b) => b.userId === userId);
@@ -96,5 +113,6 @@ module.exports = {
   formatPrice,
   formatPeso,
   orderPriceText,
+  recordStaffAction,
   isBlacklisted,
 };

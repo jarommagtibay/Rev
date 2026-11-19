@@ -90,6 +90,7 @@ function buildStaffHelpEmbed() {
       {
         name: '🛡️  Staff Tools & Moderation',
         value:
+          '• `/staffstats` — Show leaderboard of processed, sent and completed orders per staff member\n' +
           '• `/remind <receipt|vouch|details> [note]` — Ping customer with a polite reminder\n' +
           '• `/note <text>` — Post an internal team note inside the ticket channel\n' +
           '• `/blacklist <add|remove|list>` — Block or unblock users from opening tickets',

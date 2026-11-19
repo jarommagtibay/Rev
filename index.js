@@ -80,6 +80,47 @@ client.on(Events.ChannelDelete, async (channel) => {
   }
 });
 
+// ---------- Receipt Auto-Detection ----------
+// When a customer uploads an image/receipt into their ticket channel before payment is marked received
+client.on(Events.MessageCreate, async (message) => {
+  if (!message.guild || message.author.bot) return;
+  const topic = message.channel.topic || '';
+  if (!topic.startsWith('ticket:')) return;
+
+  // Only trigger if an image or receipt attachment was sent
+  const hasImage =
+    message.attachments.some(
+      (a) =>
+        (a.contentType && a.contentType.startsWith('image/')) ||
+        /\.(png|jpe?g|webp)$/i.test(a.name || '')
+    ) || /https?:\/\/.*\.(png|jpe?g|webp)/i.test(message.content);
+
+  if (!hasImage) return;
+
+  const entry = data.queue.find((e) => e.channelId === message.channel.id);
+  if (!entry) return;
+
+  // Check if payment was already marked received
+  try {
+    const mainMsg = await message.channel.messages.fetch({ message: entry.messageId, force: true });
+    const embed = mainMsg.embeds[0];
+    const isPaid = (embed && embed.fields ? embed.fields : []).some((f) => f.name === 'Payment');
+    if (isPaid) return; // already marked as received
+
+    // Prevent duplicate alerts in a short burst
+    if (entry._lastReceiptAlert && Date.now() - entry._lastReceiptAlert < 60000) return;
+    entry._lastReceiptAlert = Date.now();
+
+    await message.channel.send({
+      content:
+        `🧾 **Receipt screenshot detected!**\n` +
+        `> Staff has been notified to verify your payment. Please wait a moment while we process your order!`,
+    });
+  } catch (err) {
+    // ignore fetch errors
+  }
+});
+
 // ---------- Interactions ----------
 client.on(Events.InteractionCreate, async (interaction) => {
   try {

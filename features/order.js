@@ -11,7 +11,7 @@ const {
 const { CURRENCY, COLOR } = require('../config');
 const M = require('../messages');
 const { GAMES } = require('../catalog');
-const { data, saveData, formatPeso, robuxPrice, orderPriceText } = require('../core/data');
+const { data, saveData, formatPeso, robuxPrice, orderPriceText, recordStaffAction } = require('../core/data');
 const {
   EPHEMERAL,
   isStaff,
@@ -452,6 +452,7 @@ async function completeOrder(interaction) {
   if (isRobuxOrder(embed) && amount > 0) {
     data.totalRobuxDelivered = (data.totalRobuxDelivered || 0) + amount;
   }
+  recordStaffAction(interaction.user.id, interaction.user.username, 'completed');
   saveData();
 
   embed.setColor(COLOR);
