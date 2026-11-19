@@ -2,21 +2,21 @@
 // This file must stay in the same folder as index.js (it points to your image files).
 const path = require('path');
 
-const {
-  TOKEN,
-  CLIENT_ID,
-  GUILD_ID,
-  STAFF_ROLE_ID,
-  CATEGORY_ID,
-  BUY_CHANNEL_ID,
-  VOUCH_CHANNEL_ID,
-  RECEIPT_CHANNEL_ID,
-  SHOP_STATUS_CHANNEL_ID,
-  SHOP_PING_ROLE_ID,
-  STOCK_CHANNEL_ID,
-  AUDIT_CHANNEL_ID,
-  LOW_STOCK_THRESHOLD: Number(process.env.LOW_STOCK_THRESHOLD) || 500,
-} = process.env;
+const env = process.env;
+
+const TOKEN = env.TOKEN;
+const CLIENT_ID = env.CLIENT_ID;
+const GUILD_ID = env.GUILD_ID;
+const STAFF_ROLE_ID = env.STAFF_ROLE_ID;
+const CATEGORY_ID = env.CATEGORY_ID;
+const BUY_CHANNEL_ID = env.BUY_CHANNEL_ID;
+const VOUCH_CHANNEL_ID = env.VOUCH_CHANNEL_ID;
+const RECEIPT_CHANNEL_ID = env.RECEIPT_CHANNEL_ID;
+const SHOP_STATUS_CHANNEL_ID = env.SHOP_STATUS_CHANNEL_ID;
+const SHOP_PING_ROLE_ID = env.SHOP_PING_ROLE_ID;
+const STOCK_CHANNEL_ID = env.STOCK_CHANNEL_ID;
+const AUDIT_CHANNEL_ID = env.AUDIT_CHANNEL_ID;
+const LOW_STOCK_THRESHOLD = Number(env.LOW_STOCK_THRESHOLD) || 500;
 
 const ROOT = __dirname;
 
