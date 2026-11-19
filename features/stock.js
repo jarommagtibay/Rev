@@ -291,27 +291,30 @@ async function handle(interaction) {
   return false;
 }
 
-// Checks stock levels and alerts staff or auto-closes shop if 0 stock
+// Checks stock levels and alerts staff (warning only — does NOT auto-close the shop,
+// because the shop also sells game credits that are unrelated to Robux stock).
 async function checkStockAlerts(currentStock) {
   if (!AUDIT_CHANNEL_ID) return;
   try {
     const auditChan = await client.channels.fetch(AUDIT_CHANNEL_ID).catch(() => null);
     if (!auditChan) return;
 
-    if (currentStock <= 0 && data.shopOpen) {
-      data.shopOpen = false;
+    if (currentStock <= 0 && !data._zeroStockAlerted) {
+      data._zeroStockAlerted = true;
       saveData();
       await auditChan.send({
-        content: `🚨 **SHOP AUTO-CLOSED**: Robux stock reached **0**! The shop has been automatically closed to prevent unfillable orders. Use \`/setup stock:<amount>\` and \`/shop status:open\` to reopen.`,
+        content: `🚨 **ROBUX OUT OF STOCK**: Robux stock reached **0**! Game credits are unaffected. Use \`/setup stock:<amount>\` to restock.`,
       });
     } else if (currentStock > 0 && currentStock <= LOW_STOCK_THRESHOLD && !data._lowStockAlerted) {
       data._lowStockAlerted = true;
+      data._zeroStockAlerted = false;
       saveData();
       await auditChan.send({
         content: `⚠️ **LOW STOCK ALERT**: Current Robux stock is **${currentStock.toLocaleString()} R$** (below threshold of ${LOW_STOCK_THRESHOLD.toLocaleString()} R$). Please restock soon!`,
       });
     } else if (currentStock > LOW_STOCK_THRESHOLD) {
       data._lowStockAlerted = false;
+      data._zeroStockAlerted = false;
       saveData();
     }
   } catch (err) {

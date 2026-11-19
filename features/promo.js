@@ -1,8 +1,8 @@
-// /promo -> Staff can create, remove, and list promo discount codes
+// /promo -> Staff can create, remove, list, and give promo discount codes to customers
 const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
-const { COLOR, CURRENCY } = require('../config');
+const { COLOR, CURRENCY, CATEGORY_ID } = require('../config');
 const { data, saveData, formatPeso } = require('../core/data');
-const { EPHEMERAL, isStaff } = require('../core/helpers');
+const { EPHEMERAL, isStaff, getCustomerId } = require('../core/helpers');
 
 const commands = [
   new SlashCommandBuilder()
@@ -42,6 +42,14 @@ const commands = [
     )
     .addSubcommand((sub) =>
       sub.setName('list').setDescription('List all active promo codes')
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('give')
+        .setDescription('Send a promo code to the customer in this ticket for their next order')
+        .addStringOption((o) =>
+          o.setName('code').setDescription('The promo code to give (must exist)').setRequired(true)
+        )
     ),
 ];
 
@@ -138,6 +146,72 @@ async function handle(interaction) {
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed], flags: EPHEMERAL });
+    return true;
+  }
+
+  if (sub === 'give') {
+    const code = interaction.options.getString('code').trim().toUpperCase();
+    const promo = (data.promos || []).find((p) => p.code === code);
+    if (!promo) {
+      await interaction.reply({
+        content: `⚠️ Promo code **${code}** does not exist. Create it first with \`/promo create\`.`,
+        flags: EPHEMERAL,
+      });
+      return true;
+    }
+
+    // Check if used inside a ticket channel
+    const parentId = interaction.channel.parentId;
+    if (parentId !== CATEGORY_ID) {
+      await interaction.reply({
+        content: '⚠️ Use this inside a ticket channel to give the promo code to that customer.',
+        flags: EPHEMERAL,
+      });
+      return true;
+    }
+
+    const customerId = getCustomerId(interaction.channel);
+    if (!customerId) {
+      await interaction.reply({
+        content: '⚠️ Could not find the customer of this ticket.',
+        flags: EPHEMERAL,
+      });
+      return true;
+    }
+
+    const desc = promo.type === 'fixed' ? `${formatPeso(promo.value)} off` : `${promo.value}% off`;
+
+    // Post in the ticket so the customer sees it
+    const promoEmbed = new EmbedBuilder()
+      .setColor(COLOR)
+      .setTitle('🎁  You Got a Promo Code!')
+      .setDescription(
+        `Thank you for your order! Here is a promo code for your **next purchase**:\n\n` +
+        `\`\`\`${code}\`\`\`\n` +
+        `**Discount:** ${desc}\n` +
+        `Enter this code in the **Promo Code** field when you place your next order on the Buy panel.`
+      )
+      .setFooter({ text: 'Reveux Shop • Use it before it expires!' })
+      .setTimestamp();
+
+    await interaction.channel.send({
+      content: `<@${customerId}>`,
+      embeds: [promoEmbed],
+      allowedMentions: { users: [customerId] },
+    });
+
+    // Also try to DM the customer so they don't lose the code
+    try {
+      const member = await interaction.guild.members.fetch(customerId);
+      await member.send({ embeds: [promoEmbed] });
+    } catch {
+      // DMs might be closed, the in-channel message is enough
+    }
+
+    await interaction.reply({
+      content: `✅ Promo code **${code}** (${desc}) sent to <@${customerId}> in this ticket and via DM.`,
+      flags: EPHEMERAL,
+    });
     return true;
   }
 
