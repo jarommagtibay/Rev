@@ -40,13 +40,20 @@ async function sendCustomerDmReceipt(channel, closedByUser) {
       orderLine = `**Product:** ${entry.amount.toLocaleString()} Robux\n**Price:** ${orderPriceText(entry)}`;
     }
 
+    // If staff gave a promo code in this ticket, remind the customer
+    let promoLine = '';
+    if (entry && entry.givenPromo) {
+      promoLine = `\n\n🎁 **Your Promo Code for Next Order:**\n\`\`\`${entry.givenPromo.code}\`\`\`**Discount:** ${entry.givenPromo.desc}\nEnter this code in the **Promo Code** field when you place your next order!`;
+    }
+
     const dmEmbed = new EmbedBuilder()
       .setColor(COLOR)
       .setTitle('🛍️  Revéux Shop — Order Completed')
       .setDescription(
         `Hello ${customer}! Your ticket **#${channel.name}** has been closed.\n\n` +
         `${orderLine}\n\n` +
-        '⭐ If you enjoyed our service, don\'t forget to leave a vouch in the server. Thank you for your support!'
+        '⭐ If you enjoyed our service, don\'t forget to leave a vouch in the server. Thank you for your support!' +
+        promoLine
       )
       .setFooter({ text: `Handled by @${closedByUser.username} • Reveux Shop` })
       .setTimestamp();

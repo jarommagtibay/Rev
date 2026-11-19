@@ -181,6 +181,13 @@ async function handle(interaction) {
 
     const desc = promo.type === 'fixed' ? `${formatPeso(promo.value)} off` : `${promo.value}% off`;
 
+    // Save the promo on the queue entry so the closing DM can include it
+    const entry = data.queue.find((e) => e.channelId === interaction.channel.id);
+    if (entry) {
+      entry.givenPromo = { code, desc };
+      saveData();
+    }
+
     // Post in the ticket so the customer sees it
     const promoEmbed = new EmbedBuilder()
       .setColor(COLOR)
