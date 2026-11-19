@@ -9,7 +9,7 @@ const {
   TextInputStyle,
 } = require('discord.js');
 const { CURRENCY, COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT } = require('../config');
-const { data, saveData, formatPrice } = require('../core/data');
+const { data, saveData, formatPrice, isBlacklisted } = require('../core/data');
 const { EPHEMERAL, parseOrderAmount, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
@@ -37,6 +37,15 @@ function stockBlockMessage() {
 
 // Buy button -> ask how they want to order (Robux amount or price)
 async function showChoice(interaction) {
+  if (isBlacklisted(interaction.user.id)) {
+    const entry = (data.blacklist || []).find((b) => b.userId === interaction.user.id);
+    const reason = entry && entry.reason ? `\nReason: **${entry.reason}**` : '';
+    return interaction.reply({
+      content: `🚫 You are blacklisted from opening tickets in this shop.${reason}`,
+      flags: EPHEMERAL,
+    });
+  }
+
   if (!data.shopOpen) {
     return interaction.reply({ content: SHOP_CLOSED_TEXT, flags: EPHEMERAL });
   }

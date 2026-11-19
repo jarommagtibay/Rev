@@ -1,8 +1,10 @@
 // Closing tickets (staff only): /closeticket and the Close Ticket button
 const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { COLOR } = require('../config');
+const client = require('../core/client');
 const M = require('../messages');
-const { EPHEMERAL, isStaff, fromTemplate } = require('../core/helpers');
+const { data, formatPrice, formatPeso } = require('../core/data');
+const { EPHEMERAL, isStaff, fromTemplate, getCustomerId } = require('../core/helpers');
 const { logTicketTranscript } = require('../core/audit');
 
 const commands = [
@@ -22,11 +24,48 @@ function closingMessage(user) {
   return { embeds: [embed] };
 }
 
-// Executes close: sends closing message, archives transcript to AUDIT_CHANNEL_ID, and deletes channel
+async function sendCustomerDmReceipt(channel, closedByUser) {
+  try {
+    const customerId = getCustomerId(channel);
+    if (!customerId) return;
+
+    const customer = await client.users.fetch(customerId).catch(() => null);
+    if (!customer) return;
+
+    const entry = data.queue.find((e) => e.channelId === channel.id);
+    let orderLine = 'Thank you for shopping with Revéux!';
+    if (entry && entry.type === 'game') {
+      orderLine = `**Product:** ${entry.label} (${entry.gameName})\n**Price:** ${formatPeso(entry.price)}`;
+    } else if (entry) {
+      orderLine = `**Product:** ${entry.amount.toLocaleString()} Robux\n**Price:** ${formatPrice(entry.amount)}`;
+    }
+
+    const dmEmbed = new EmbedBuilder()
+      .setColor(COLOR)
+      .setTitle('🛍️  Revéux Shop — Order Completed')
+      .setDescription(
+        `Hello ${customer}! Your ticket **#${channel.name}** has been closed.\n\n` +
+        `${orderLine}\n\n` +
+        '⭐ If you enjoyed our service, don\'t forget to leave a vouch in the server. Thank you for your support!'
+      )
+      .setFooter({ text: `Handled by @${closedByUser.username} • Reveux Shop` })
+      .setTimestamp();
+
+    await customer.send({ embeds: [dmEmbed] }).catch(() => {
+      // DMs closed or blocked, ignore safely
+    });
+  } catch (err) {
+    console.error('Could not send DM receipt:', err);
+  }
+}
+
+// Executes close: sends closing message, archives transcript to AUDIT_CHANNEL_ID, sends DM receipt, and deletes channel
 async function executeClose(interaction) {
   await interaction.reply(closingMessage(interaction.user));
 
-  // Archive transcript in the background
+  // Send DM receipt to customer & archive transcript in the background
+  sendCustomerDmReceipt(interaction.channel, interaction.user);
+
   try {
     await logTicketTranscript(interaction.channel, interaction.user);
   } catch (err) {

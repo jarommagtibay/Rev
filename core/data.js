@@ -20,6 +20,7 @@ function loadData() {
       totalOrders: typeof d.totalOrders === 'number' ? d.totalOrders : 0,
       totalVouches: typeof d.totalVouches === 'number' ? d.totalVouches : 0,
       totalRobuxDelivered: typeof d.totalRobuxDelivered === 'number' ? d.totalRobuxDelivered : 0,
+      blacklist: Array.isArray(d.blacklist) ? d.blacklist : [],
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -42,6 +43,7 @@ function loadData() {
       totalOrders: 0,
       totalVouches: 0,
       totalRobuxDelivered: 0,
+      blacklist: [],
     };
   }
 }
@@ -70,4 +72,9 @@ function formatPeso(amount) {
   return `${CURRENCY}${Number(amount).toLocaleString('en-US')}`;
 }
 
-module.exports = { data, saveData, formatPrice, formatPeso };
+// Checks if a Discord user id is blacklisted from opening tickets
+function isBlacklisted(userId) {
+  return Array.isArray(data.blacklist) && data.blacklist.some((b) => b.userId === userId);
+}
+
+module.exports = { data, saveData, formatPrice, formatPeso, isBlacklisted };

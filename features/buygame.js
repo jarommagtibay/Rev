@@ -11,7 +11,7 @@ const {
 } = require('discord.js');
 const { COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT } = require('../config');
 const { GAMES } = require('../catalog');
-const { data, saveData, formatPeso } = require('../core/data');
+const { data, saveData, formatPeso, isBlacklisted } = require('../core/data');
 const { EPHEMERAL, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
@@ -28,6 +28,11 @@ const commands = [];
 // Checks shared by every step. Returns a reply message if the customer can't continue.
 // The ticket limit is counted per game (key = the game key from catalog.js, e.g. 'ml').
 function blockReason(interaction, game, key) {
+  if (isBlacklisted(interaction.user.id)) {
+    const entry = (data.blacklist || []).find((b) => b.userId === interaction.user.id);
+    const reason = entry && entry.reason ? `\nReason: **${entry.reason}**` : '';
+    return `🚫 You are blacklisted from opening tickets in this shop.${reason}`;
+  }
   if (!data.shopOpen) return SHOP_CLOSED_TEXT;
   return ticketLimitMessage(interaction.guild, interaction.user.id, key, game.name);
 }

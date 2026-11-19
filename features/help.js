@@ -86,6 +86,13 @@ function buildStaffHelpEmbed() {
           `• **Hold / Resume:** 1-click red button to pause or resume queue position\n` +
           `• **Complete Order:** Finishes order, posts receipt to \`#receipts\`, and records shop stats\n` +
           `• **Close Ticket:** Generates HTML transcript for \`#ticket-logs\` and deletes channel (staff only)`,
+      },
+      {
+        name: '🛡️  Staff Tools & Moderation',
+        value:
+          '• `/remind <receipt|vouch|details> [note]` — Ping customer with a polite reminder\n' +
+          '• `/note <text>` — Post an internal team note inside the ticket channel\n' +
+          '• `/blacklist <add|remove|list>` — Block or unblock users from opening tickets',
       }
     )
     .setFooter({ text: 'Staff only cheat sheet • Reveux Shop' })
