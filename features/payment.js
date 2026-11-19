@@ -4,7 +4,7 @@ const path = require('path');
 const { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { COLOR, QR_FILES, QR_NAMES, QR_DETAILS } = require('../config');
 const M = require('../messages');
-const { data, formatPrice, formatPeso } = require('../core/data');
+const { data, formatPeso, orderPriceText } = require('../core/data');
 const { EPHEMERAL, isStaff } = require('../core/helpers');
 const { markPaymentReceived, runOrderCommand } = require('../core/orderActions');
 
@@ -47,6 +47,9 @@ async function payButton(interaction) {
   const key = interaction.customId.replace('pay_', '');
   const file = QR_FILES[key];
 
+  if (!file) {
+    return interaction.reply({ content: 'That payee is not set up anymore.', flags: EPHEMERAL });
+  }
   if (!fs.existsSync(file)) {
     console.warn(`${path.basename(file)} not found.`);
     return interaction.reply({
@@ -60,9 +63,10 @@ async function payButton(interaction) {
   if (entry && entry.type === 'game') {
     amountLine = `Pay\n## ${formatPeso(entry.price)}\nfor **${entry.label}** (${entry.gameName})\n\n`;
   } else if (entry) {
-    amountLine = `Pay\n## ${formatPrice(entry.amount)}\nfor **${entry.amount.toLocaleString()} Robux**\n\n`;
+    amountLine = `Pay\n## ${orderPriceText(entry)}\nfor **${entry.amount.toLocaleString()} Robux**\n\n`;
   }
 
+  const qrName = path.basename(file); // keeps the real file name, so .jpg QR files work too
   const details = QR_DETAILS && QR_DETAILS[key];
   const copyLine = details
     ? `\n\n📱 **Account / GCash (tap to copy on mobile):**\n\`\`\`\n${details}\n\`\`\``
@@ -72,11 +76,11 @@ async function payButton(interaction) {
     .setTitle(`💳  Pay to ${QR_NAMES[key]}`)
     .setColor(COLOR)
     .setDescription(`${amountLine}Send your receipt in this ticket.\n> 🧾  **No receipt = no process!**${copyLine}`)
-    .setImage(`attachment://payment-qr-${key}.png`);
+    .setImage(`attachment://${qrName}`);
 
   return interaction.reply({
     embeds: [qrEmbed],
-    files: [new AttachmentBuilder(file, { name: `payment-qr-${key}.png` })],
+    files: [new AttachmentBuilder(file, { name: qrName })],
   });
 }
 
@@ -86,9 +90,11 @@ async function handle(interaction) {
     return true;
   }
 
+  // pay_<key> buttons: one per payee in config.js (PAYEES)
   if (
     interaction.isButton() &&
-    (interaction.customId === 'pay_hixsly' || interaction.customId === 'pay_ysha')
+    interaction.customId.startsWith('pay_') &&
+    Object.prototype.hasOwnProperty.call(QR_FILES, interaction.customId.slice(4))
   ) {
     await payButton(interaction);
     return true;

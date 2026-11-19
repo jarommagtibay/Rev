@@ -1,0 +1,16 @@
+{
+  "name": "reveux-bot",
+  "version": "1.0.0",
+  "description": "Reveux shop bot: Robux and game credit tickets, order queue, stock board, vouches and giveaways for Discord",
+  "main": "index.js",
+  "private": true,
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "scripts": {
+    "start": "node --env-file=.env index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.22.0"
+  }
+}

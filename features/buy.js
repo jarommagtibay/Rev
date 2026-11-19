@@ -9,7 +9,7 @@ const {
   TextInputStyle,
 } = require('discord.js');
 const { CURRENCY, COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT } = require('../config');
-const { data, saveData, formatPrice, isBlacklisted } = require('../core/data');
+const { data, saveData, formatPeso, robuxPrice, isBlacklisted } = require('../core/data');
 const { EPHEMERAL, parseOrderAmount, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
@@ -156,6 +156,8 @@ async function createTicket(interaction) {
     return interaction.reply({ content: parsed.error, flags: EPHEMERAL });
   }
   const amount = parsed.amount;
+  // The price is decided ONCE here and saved on the queue entry, so a later rate change never reprices it
+  const price = robuxPrice(amount);
 
   const available = availableStock();
   if (amount > available) {
@@ -175,13 +177,13 @@ async function createTicket(interaction) {
     .setAuthor({ name: 'REVÉUX  •  ORDER TICKET' })
     .setTitle('🧾  New Robux Order')
     .setColor(COLOR)
-    .setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPrice(amount)))
+    .setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPeso(price)))
     .setThumbnail(interaction.user.displayAvatarURL())
     .addFields(
       { name: 'Account Name', value: `\`\`\`\n${name}\n\`\`\``, inline: true },
       { name: 'Account Username', value: `\`\`\`\n${username}\n\`\`\``, inline: true },
       { name: 'Robux Amount', value: amount.toLocaleString(), inline: true },
-      { name: 'Price', value: formatPrice(amount), inline: true },
+      { name: 'Price', value: formatPeso(price), inline: true },
       { name: 'Queue Position', value: `#${position}`, inline: true },
       { name: 'Opened by', value: `${interaction.user}` }
     )
@@ -195,7 +197,7 @@ async function createTicket(interaction) {
     allowedMentions: { parse: ['users', 'roles'] },
   });
 
-  await sendPaymentMessage(channel, formatPrice(amount), `${amount.toLocaleString()} Robux`);
+  await sendPaymentMessage(channel, formatPeso(price), `${amount.toLocaleString()} Robux`);
 
   // Check once more right before joining the queue: another customer may have ordered while this
   // ticket was being created. (No waiting happens between this check and the queue push below.)
@@ -213,8 +215,10 @@ async function createTicket(interaction) {
     username,
     safeName,
     amount,
+    price,
     joinedAt: Date.now(),
     notifiedNext: false,
+    shownPosition: `#${position}`,
   };
   data.queue.push(entry);
   saveData();
@@ -223,7 +227,7 @@ async function createTicket(interaction) {
   logTicketCreated(interaction, {
     channel,
     item: `${amount.toLocaleString()} Robux`,
-    price: formatPrice(amount),
+    price: formatPeso(price),
     details: [
       { name: 'Account Name', value: name },
       { name: 'Account Username', value: username },

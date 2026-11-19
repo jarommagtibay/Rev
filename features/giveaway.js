@@ -80,7 +80,13 @@ const ending = new Set(); // giveaways being ended right now
 const dirty = new Set(); // giveaways whose entry count needs to be refreshed
 
 function save() {
-  fs.writeFileSync(FILE, JSON.stringify(giveaways, null, 2));
+  const tmp = FILE + '.tmp';
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(giveaways, null, 2));
+    fs.renameSync(tmp, FILE);
+  } catch (err) {
+    console.error('Could not save giveaways.json:', err);
+  }
 }
 
 // ---------- Commands ----------

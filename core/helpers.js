@@ -26,6 +26,16 @@ function isStaff(member) {
   );
 }
 
+// Simple lock so the same ticket can't be changed by two clicks at the same time
+// (two staff pressing Sent, a double-click on Complete Order, a vouch racing Complete Order...).
+// const release = tryLock('order:123'); if (!release) return; try { ... } finally { release(); }
+const activeLocks = new Set();
+function tryLock(key) {
+  if (activeLocks.has(key)) return null;
+  activeLocks.add(key);
+  return () => activeLocks.delete(key);
+}
+
 // Replaces {words} in a text from messages.js. Unknown {words} are left as they are.
 function fill(template, vars = {}) {
   return String(template ?? '').replace(/\{(\w+)\}/g, (match, key) =>
@@ -144,6 +154,7 @@ module.exports = {
   orderLabel,
   EPHEMERAL,
   isStaff,
+  tryLock,
   ticketMessage,
   baseName,
   getCustomerId,

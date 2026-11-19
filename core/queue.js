@@ -6,30 +6,64 @@ const M = require('../messages');
 const { baseName, fill } = require('./helpers');
 const { setPositionField } = require('./ticket');
 
-// Updates the position shown in every open ticket (embed + channel name)
-async function refreshQueue(guild) {
+// Discord allows about 2 channel renames per 10 minutes per channel. Renaming a ticket more often
+// than this only fills Discord's queue with waiting requests, so position renames are spaced out.
+// (Hold <-> active changes are always renamed at once. The embed always shows the real position.)
+const RENAME_COOLDOWN = 5 * 60 * 1000;
+
+async function getTicketChannel(guild, channelId) {
+  return guild.channels.cache.get(channelId) || (await guild.channels.fetch(channelId));
+}
+
+// Brings one ticket up to date: the position in its embed (only if it changed) and the channel name.
+// Returns true if something was changed that needs saving.
+async function syncTicket(guild, entry, positionText, nameFor) {
+  const channel = await getTicketChannel(guild, entry.channelId);
+  const wantedName = nameFor(channel);
+  let changed = false;
+
+  if (entry.shownPosition !== positionText) {
+    const message = await channel.messages.fetch({ message: entry.messageId, force: true });
+    const embed = EmbedBuilder.from(message.embeds[0]);
+    setPositionField(embed, positionText);
+    await message.edit({ embeds: [embed] });
+    entry.shownPosition = positionText;
+    changed = true;
+  }
+
+  if (channel.name !== wantedName) {
+    const stateChange = channel.name.startsWith('hold-') !== wantedName.startsWith('hold-');
+    if (stateChange || Date.now() - (entry.renamedAt || 0) >= RENAME_COOLDOWN) {
+      entry.renamedAt = Date.now();
+      changed = true;
+      // not awaited: a rename that Discord delays must not slow the queue down
+      channel.setName(wantedName).catch(() => { });
+    }
+  }
+
+  return { channel, changed };
+}
+
+async function refreshQueueNow(guild) {
+  let needsSave = false;
   const activeQueue = data.queue.filter((e) => !e.onHold);
 
   // Active queue: calculate #1, #2, #3...
   for (let i = 0; i < activeQueue.length; i++) {
     const entry = activeQueue[i];
     try {
-      const channel = await guild.channels.fetch(entry.channelId);
-      const message = await channel.messages.fetch({ message: entry.messageId, force: true });
-      const embed = EmbedBuilder.from(message.embeds[0]);
-      setPositionField(embed, `#${i + 1}`);
-      await message.edit({ embeds: [embed] });
-
-      // Rename the channel to show the queue number
-      // (not awaited: Discord limits renames to about 2 per 10 minutes per channel)
-      const wanted = `queue-${i + 1}-${entry.safeName || baseName(channel.name)}`;
-      if (channel.name !== wanted) {
-        channel.setName(wanted).catch(() => { });
-      }
+      const { channel, changed } = await syncTicket(
+        guild,
+        entry,
+        `#${i + 1}`,
+        (ch) => `queue-${i + 1}-${entry.safeName || baseName(ch.name)}`
+      );
+      if (changed) needsSave = true;
 
       // Tell the customer when they reach the front
       if (i === 0 && !entry.notifiedNext) {
         entry.notifiedNext = true;
+        needsSave = true;
         saveData();
         await channel.send({
           content: `<@${entry.userId}>`,
@@ -48,23 +82,44 @@ async function refreshQueue(guild) {
   }
 
   // Held tickets: ⏸️ On Hold
-  const heldQueue = data.queue.filter((e) => e.onHold);
-  for (const entry of heldQueue) {
+  for (const entry of data.queue.filter((e) => e.onHold)) {
     try {
-      const channel = await guild.channels.fetch(entry.channelId);
-      const message = await channel.messages.fetch({ message: entry.messageId, force: true });
-      const embed = EmbedBuilder.from(message.embeds[0]);
-      setPositionField(embed, '⏸️ On Hold');
-      await message.edit({ embeds: [embed] });
-
-      const wanted = `hold-${entry.safeName || baseName(channel.name)}`;
-      if (channel.name !== wanted) {
-        channel.setName(wanted).catch(() => { });
-      }
+      const { changed } = await syncTicket(
+        guild,
+        entry,
+        '⏸️ On Hold',
+        (ch) => `hold-${entry.safeName || baseName(ch.name)}`
+      );
+      if (changed) needsSave = true;
     } catch (err) {
       // ignore
     }
   }
+
+  if (needsSave) saveData();
+}
+
+// Only one refresh runs at a time. If more changes arrive while it runs, ONE more pass is made
+// afterwards (instead of several refreshes editing the same tickets at once).
+let running = null;
+let rerun = false;
+
+function refreshQueue(guild) {
+  if (running) {
+    rerun = true;
+    return running;
+  }
+  running = (async () => {
+    try {
+      do {
+        rerun = false;
+        await refreshQueueNow(guild);
+      } while (rerun);
+    } finally {
+      running = null;
+    }
+  })();
+  return running;
 }
 
 function removeFromQueue(channelId) {

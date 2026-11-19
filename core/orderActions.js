@@ -9,7 +9,7 @@ const {
   ModalBuilder,
 } = require('discord.js');
 const { COLOR } = require('../config');
-const { data, saveData, formatPrice } = require('./data');
+const { data, saveData, formatPrice, formatPeso } = require('./data');
 const M = require('../messages');
 const {
   EPHEMERAL,
@@ -18,6 +18,7 @@ const {
   fromTemplate,
   getCustomerId,
   baseName,
+  tryLock,
 } = require('./helpers');
 const {
   orderHeadline,
@@ -33,8 +34,30 @@ const {
 } = require('./ticket');
 const { refreshQueue, removeFromQueue } = require('./queue');
 
+const PAYMENT_REQUIRED_MESSAGE =
+  '⚠️ Payment has not been marked as received yet! Please verify the payment and click **Payment Received** first.';
+const BUSY_MESSAGE = 'Another staff member is updating this order right now. Please try again in a moment.';
+
+// Runs one order action while holding the ticket's lock. The ticket message is read again inside the
+// lock, because the copy that came with a button click can be a few seconds old.
+async function withOrderLock(channel, message, action) {
+  const release = tryLock(`order:${channel.id}`);
+  if (!release) return { error: BUSY_MESSAGE };
+  try {
+    let fresh = message;
+    try {
+      fresh = await channel.messages.fetch({ message: message.id, force: true });
+    } catch {
+      // keep the copy we have
+    }
+    return await action(fresh);
+  } finally {
+    release();
+  }
+}
+
 // message = the main ticket message (the order embed)
-async function markPaymentReceived(message, channel, user) {
+async function markPaymentReceivedUnlocked(message, channel, user) {
   const embed = EmbedBuilder.from(message.embeds[0]);
   const stage = stageFromEmbed(embed);
   if (stage === 'completed') {
@@ -60,7 +83,7 @@ async function markPaymentReceived(message, channel, user) {
   return {};
 }
 
-async function markProcessing(message, channel, user) {
+async function markProcessingUnlocked(message, channel, user) {
   const embed = EmbedBuilder.from(message.embeds[0]);
   const stage = stageFromEmbed(embed);
   if (stage === 'sent' || stage === 'completed') {
@@ -83,24 +106,30 @@ async function markProcessing(message, channel, user) {
   return {};
 }
 
-// The queue entry holds the real amount (Edit Order saves it there). If the order message still
+// The queue entry holds the real amount and price (Edit Order saves it there). If the order message still
 // shows an older amount, fix it, so the stock, the ticket and the receipt all use the same number.
-function syncOrderAmount(embed, amount) {
+function syncOrderAmount(embed, amount, price) {
+  const priceText = price !== undefined ? formatPeso(price) : formatPrice(amount);
   const fields = (embed.data.fields || []).map((f) => {
     if (f.name === 'Robux Amount') return { ...f, value: amount.toLocaleString() };
-    if (f.name === 'Price') return { ...f, value: formatPrice(amount) };
+    if (f.name === 'Price') return { ...f, value: priceText };
     return f;
   });
   embed.setFields(fields);
-  embed.setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPrice(amount)));
+  embed.setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, priceText));
 }
 
 // Deducts the stock, takes the order out of the queue and posts the Vouch button
-async function markSent(message, channel, guild, user, proof) {
+async function markSentUnlocked(message, channel, guild, user, proof) {
   const embed = EmbedBuilder.from(message.embeds[0]);
   const stage = stageFromEmbed(embed);
   if (stage === 'sent' || stage === 'completed') {
     return { error: 'This order was already marked as sent.' };
+  }
+
+  // Ensure payment has been confirmed before allowing staff to mark as sent
+  if (!isPaid(embed)) {
+    return { error: PAYMENT_REQUIRED_MESSAGE };
   }
 
   // Only Robux orders use the Robux stock. Game orders (ML / HOK / CODM) skip it.
@@ -109,7 +138,7 @@ async function markSent(message, channel, guild, user, proof) {
   const entry = data.queue.find((e) => e.channelId === channel.id);
   if (robux && entry && entry.amount > 0 && entry.amount !== amount) {
     amount = entry.amount;
-    syncOrderAmount(embed, amount);
+    syncOrderAmount(embed, amount, entry.price);
   }
   if (robux && amount > data.stock) {
     return {
@@ -182,6 +211,17 @@ async function markSent(message, channel, guild, user, proof) {
   return {};
 }
 
+// The three actions staff can take on an order. Each one holds the ticket's lock (see withOrderLock).
+function markPaymentReceived(message, channel, user) {
+  return withOrderLock(channel, message, (m) => markPaymentReceivedUnlocked(m, channel, user));
+}
+function markProcessing(message, channel, user) {
+  return withOrderLock(channel, message, (m) => markProcessingUnlocked(m, channel, user));
+}
+function markSent(message, channel, guild, user, proof) {
+  return withOrderLock(channel, message, (m) => markSentUnlocked(m, channel, guild, user, proof));
+}
+
 // Popup where staff attach the proof picture(s) when marking an order as sent
 function buildSentModal() {
   const upload = new FileUploadBuilder().setCustomId('proof').setRequired(true);
@@ -214,6 +254,20 @@ async function showSentModal(interaction) {
       content: `Not enough stock to send this order. Stock is **${data.stock.toLocaleString()}**, order needs **${entry.amount.toLocaleString()}**. Update it with \`/${M.commandNames.setup}\`.`,
       flags: EPHEMERAL,
     });
+  }
+
+  // Check the payment BEFORE the popup opens, so staff don't attach proof pictures just to be rejected.
+  // (markSent checks again when the popup is submitted.)
+  try {
+    const mainMessage =
+      interaction.isButton() && interaction.message.id === entry.messageId
+        ? interaction.message
+        : await interaction.channel.messages.fetch({ message: entry.messageId });
+    if (!isPaid(EmbedBuilder.from(mainMessage.embeds[0]))) {
+      return interaction.reply({ content: PAYMENT_REQUIRED_MESSAGE, flags: EPHEMERAL });
+    }
+  } catch (err) {
+    // could not read the ticket message: let markSent do the check
   }
 
   // Older discord.js versions can't show a file upload popup: mark as sent without proof
@@ -277,6 +331,8 @@ async function runOrderCommand(interaction) {
 }
 
 module.exports = {
+  PAYMENT_REQUIRED_MESSAGE,
+  BUSY_MESSAGE,
   syncOrderAmount,
   markPaymentReceived,
   markProcessing,

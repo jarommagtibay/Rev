@@ -1,5 +1,5 @@
 // /blacklist -> Staff only: block malicious users from opening tickets
-const { EmbedBuilder, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { COLOR } = require('../config');
 const { data, saveData } = require('../core/data');
 const { EPHEMERAL, isStaff } = require('../core/helpers');
@@ -8,7 +8,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('blacklist')
     .setDescription('Staff only: manage the shop blacklist')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) =>
       sub
         .setName('add')

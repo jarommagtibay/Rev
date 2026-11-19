@@ -110,6 +110,10 @@ module.exports = {
 
   // The payment message with the "Pay to ..." buttons
   payment: {
+    qrIntro: 'Staff will send you the QR code here. Once you have paid, send your receipt in this ticket.',
+    noReceipt: '🧾  **No receipt = no process!**',
+    refundNote: '⚠️  **For force refund, 30% of the total will be deducted.**',
+    footer: 'Staff will send the payment QR in this ticket',
     title: 'Payment',
     text: 'You need to pay **{price}** for **{item}**.\nStaff will send you the QR code here. Once you have paid, send your receipt in this ticket.\n**No receipt = no process!**\n\n**NOTE: FOR FORCE REFUND, 30% OF THE TOTAL WILL BE DEDUCTED!**',
   },

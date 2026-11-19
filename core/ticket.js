@@ -7,7 +7,7 @@ const {
   EmbedBuilder,
   PermissionFlagsBits,
 } = require('discord.js');
-const { COLOR, CURRENCY, RECEIPT_CHANNEL_ID, STAFF_ROLE_ID, CATEGORY_ID } = require('../config');
+const { COLOR, CURRENCY, RECEIPT_CHANNEL_ID, STAFF_ROLE_ID, CATEGORY_ID, PAYEES } = require('../config');
 const client = require('./client');
 const M = require('../messages');
 const { baseName, fill } = require('./helpers');
@@ -235,33 +235,42 @@ async function createTicketChannel(interaction, position, safeName, product) {
   });
 }
 
-// Payment message with one button per payee (each button shows that QR)
+// Payment message with one button per payee (staff press a button to send that payee's QR)
 // priceText e.g. "₱117", itemText e.g. "112 Diamonds (Mobile Legends)"
+// The wording is in messages.js (payment). The defaults here are only a safety net: an empty
+// embed footer or description would make Discord reject the whole message.
+const PAYMENT_TEXT_DEFAULTS = {
+  qrIntro: 'Staff will send you the QR code here. Once you have paid, send your receipt in this ticket.',
+  noReceipt: '🧾  **No receipt = no process!**',
+  refundNote: '⚠️  **For force refund, 30% of the total will be deducted.**',
+  footer: 'Staff will send the payment QR in this ticket',
+};
+
 async function sendPaymentMessage(channel, priceText, itemText) {
   try {
+    const T = { ...PAYMENT_TEXT_DEFAULTS, ...(M.payment || {}) };
     const payEmbed = new EmbedBuilder()
       .setTitle('💳  ' + fill(M.payment.title))
       .setColor(COLOR)
       .setDescription(
         `You need to pay\n## ${priceText}\nfor **${itemText}**\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n` +
-        'Staff will send you the QR code here. Once you have paid, send your receipt in this ticket.\n\n' +
-        '> 🧾  **No receipt = no process!**\n' +
-        '> ⚠️  **For force refund, 30% of the total will be deducted.**'
+        `${fill(T.qrIntro)}\n\n> ${fill(T.noReceipt)}\n> ${fill(T.refundNote)}`
       )
-      .setFooter({ text: 'Tap a button below to see the payment QR' });
+      .setFooter({ text: fill(T.footer) });
 
-    const payRow = new ActionRowBuilder().addComponents(
+    // One button per payee in config.js (Discord: max 5 buttons per row)
+    const buttons = PAYEES.map((p) =>
       new ButtonBuilder()
-        .setCustomId('pay_hixsly')
-        .setLabel('Pay to Hixsly')
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId('pay_ysha')
-        .setLabel('Pay to Ysha')
+        .setCustomId(`pay_${p.key}`)
+        .setLabel(`Pay to ${p.name}`)
         .setStyle(ButtonStyle.Danger)
     );
+    const rows = [];
+    for (let i = 0; i < buttons.length && rows.length < 5; i += 5) {
+      rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+    }
 
-    await channel.send({ embeds: [payEmbed], components: [payRow] });
+    await channel.send({ embeds: [payEmbed], components: rows });
   } catch (err) {
     console.error('Could not send payment message:', err);
   }

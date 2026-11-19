@@ -87,6 +87,8 @@ async function holdTicket(channel, staffMember, reason = '') {
       embeds: [embed],
       components: ticketRows(stage, isPaid(embed), true, true),
     });
+    entry.shownPosition = '⏸️ On Hold';
+    saveData();
   } catch (err) {
     // message not found, ignore
   }
@@ -273,12 +275,30 @@ function showHoldModal(interaction) {
   return interaction.showModal(modal);
 }
 
+// Shared checks for /hold, /unhold and /move: staff only, and only inside a ticket channel.
+// Replies and returns true when the command must stop.
+async function rejectUnlessStaffInTicket(interaction) {
+  if (!isStaff(interaction.member)) {
+    await interaction.reply({ content: 'Only staff can use this command.', flags: EPHEMERAL });
+    return true;
+  }
+  if (!(interaction.channel.topic || '').startsWith('ticket:')) {
+    await interaction.reply({
+      content: 'This command only works inside a ticket channel.',
+      flags: EPHEMERAL,
+    });
+    return true;
+  }
+  return false;
+}
+
 async function handle(interaction) {
   // Hold / Resume buttons
   if (interaction.isButton()) {
     if (interaction.customId === 'hold_ticket') {
       if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: 'Only staff can hold tickets.', flags: EPHEMERAL });
+        await interaction.reply({ content: 'Only staff can hold tickets.', flags: EPHEMERAL });
+        return true;
       }
       await showHoldModal(interaction);
       return true;
@@ -286,78 +306,72 @@ async function handle(interaction) {
 
     if (interaction.customId === 'unhold_ticket') {
       if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: 'Only staff can resume tickets.', flags: EPHEMERAL });
+        await interaction.reply({ content: 'Only staff can resume tickets.', flags: EPHEMERAL });
+        return true;
       }
       await interaction.deferReply({ flags: EPHEMERAL });
       const res = await unholdTicket(interaction.channel, interaction.user, 'front');
-      return interaction.editReply(res.error || '▶️ Ticket resumed and returned to queue #1.');
+      await interaction.editReply(res.error || '▶️ Ticket resumed and returned to queue #1.');
+      return true;
     }
   }
 
   // Hold reason modal submitted
   if (interaction.isModalSubmit() && interaction.customId === 'hold_ticket_modal') {
     if (!isStaff(interaction.member)) {
-      return interaction.reply({ content: 'Only staff can hold tickets.', flags: EPHEMERAL });
+      await interaction.reply({ content: 'Only staff can hold tickets.', flags: EPHEMERAL });
+      return true;
     }
     const reason = interaction.fields.getTextInputValue('hold_reason').trim();
     await interaction.deferReply({ flags: EPHEMERAL });
     const res = await holdTicket(interaction.channel, interaction.user, reason);
-    return interaction.editReply(res.error || '⏸️ Ticket placed on hold. Queue updated.');
+    await interaction.editReply(res.error || '⏸️ Ticket placed on hold. Queue updated.');
+    return true;
   }
 
   // Slash commands
   if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === M.commandNames.queue) {
+    const name = interaction.commandName;
+
+    if (name === M.commandNames.queue) {
       await runQueue(interaction);
       return true;
     }
-    if (interaction.commandName === M.commandNames.next) {
+    if (name === M.commandNames.next) {
       await runNext(interaction);
       return true;
     }
 
     // /hold [reason]
-    if (interaction.commandName === HOLD_COMMAND) {
-      if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: 'Only staff can use this command.', flags: EPHEMERAL });
-      }
-      if (!(interaction.channel.topic || '').startsWith('ticket:')) {
-        return interaction.reply({ content: 'This command only works inside a ticket channel.', flags: EPHEMERAL });
-      }
+    if (name === HOLD_COMMAND) {
+      if (await rejectUnlessStaffInTicket(interaction)) return true;
       const reason = interaction.options.getString('reason') || '';
       await interaction.deferReply({ flags: EPHEMERAL });
       const res = await holdTicket(interaction.channel, interaction.user, reason);
-      return interaction.editReply(res.error || '⏸️ Ticket placed on hold. Queue updated.');
+      await interaction.editReply(res.error || '⏸️ Ticket placed on hold. Queue updated.');
+      return true;
     }
 
     // /unhold [position]
-    if (interaction.commandName === UNHOLD_COMMAND) {
-      if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: 'Only staff can use this command.', flags: EPHEMERAL });
-      }
-      if (!(interaction.channel.topic || '').startsWith('ticket:')) {
-        return interaction.reply({ content: 'This command only works inside a ticket channel.', flags: EPHEMERAL });
-      }
+    if (name === UNHOLD_COMMAND) {
+      if (await rejectUnlessStaffInTicket(interaction)) return true;
       const posOpt = interaction.options.getString('position') || 'front';
       await interaction.deferReply({ flags: EPHEMERAL });
       const res = await unholdTicket(interaction.channel, interaction.user, posOpt);
-      return interaction.editReply(res.error || `▶️ Ticket resumed at ${posOpt} of queue. Queue updated.`);
+      await interaction.editReply(res.error || `▶️ Ticket resumed at ${posOpt} of queue. Queue updated.`);
+      return true;
     }
 
     // /move <position>
-    if (interaction.commandName === MOVE_COMMAND) {
-      if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: 'Only staff can use this command.', flags: EPHEMERAL });
-      }
-      if (!(interaction.channel.topic || '').startsWith('ticket:')) {
-        return interaction.reply({ content: 'This command only works inside a ticket channel.', flags: EPHEMERAL });
-      }
+    if (name === MOVE_COMMAND) {
+      if (await rejectUnlessStaffInTicket(interaction)) return true;
       const targetPos = interaction.options.getInteger('position');
       await interaction.deferReply({ flags: EPHEMERAL });
       const res = await moveTicket(interaction.channel, interaction.user, targetPos);
-      return interaction.editReply(
+      await interaction.editReply(
         res.error || `✅ Moved this ticket to position **#${res.position}**. Queue updated.`
       );
+      return true;
     }
   }
 

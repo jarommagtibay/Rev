@@ -1,6 +1,18 @@
 node_modules/
 .env
 .env.*
+!.env.example
 *.log
 .DS_Store
 Thumbs.db
+
+# Shop data: customer Discord IDs, account usernames, orders
+data.json
+data.json.tmp
+data.json.broken
+giveaways.json
+giveaways.json.tmp
+
+# Payment QR pictures
+payment-qr-*.png
+payment-qr-*.jpg

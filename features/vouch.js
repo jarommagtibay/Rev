@@ -20,13 +20,15 @@ const {
   fromTemplate,
   baseName,
   getCustomerId,
-  parseOrderAmount,
+  tryLock,
 } = require('../core/helpers');
 const {
   setPositionField,
   setStatusField,
   stageFromEmbed,
   isVouched,
+  isRobuxOrder,
+  getAmount,
   ticketRows,
   postReceipt,
 } = require('../core/ticket');
@@ -111,8 +113,32 @@ async function vouchButton(interaction) {
   return interaction.showModal(buildVouchModal(mainMessageId));
 }
 
-// Vouch form submitted -> post the vouch (with the optional picture) and auto-complete the order
+// Vouch form submitted. Holds the same lock as Complete Order, so a vouch and a staff click at the
+// same moment can't both complete the order (and count it twice in the shop stats).
 async function vouchForm(interaction) {
+  if (interaction.user.id !== getCustomerId(interaction.channel)) {
+    return interaction.reply({
+      content: 'Only the customer of this ticket can leave a vouch.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  const release = tryLock(`order:${interaction.channel.id}`);
+  if (!release) {
+    return interaction.reply({
+      content: 'Your vouch is being processed. Please wait a moment.',
+      flags: EPHEMERAL,
+    });
+  }
+  try {
+    await postVouch(interaction);
+  } finally {
+    release();
+  }
+}
+
+// Posts the vouch (with the optional picture) and auto-completes the order
+async function postVouch(interaction) {
   if (interaction.user.id !== getCustomerId(interaction.channel)) {
     return interaction.reply({
       content: 'Only the customer of this ticket can leave a vouch.',
@@ -230,8 +256,8 @@ async function vouchForm(interaction) {
   data.totalVouches = (data.totalVouches || 0) + 1;
   if (!wasCompleted) {
     data.totalOrders = (data.totalOrders || 0) + 1;
-    if (amountField) {
-      data.totalRobuxDelivered = (data.totalRobuxDelivered || 0) + parseOrderAmount(amountField.value);
+    if (isRobuxOrder(ticketEmbed)) {
+      data.totalRobuxDelivered = (data.totalRobuxDelivered || 0) + getAmount(ticketEmbed);
     }
   }
   saveData();

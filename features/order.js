@@ -11,7 +11,7 @@ const {
 const { CURRENCY, COLOR } = require('../config');
 const M = require('../messages');
 const { GAMES } = require('../catalog');
-const { data, saveData, formatPrice, formatPeso } = require('../core/data');
+const { data, saveData, formatPeso, robuxPrice, orderPriceText } = require('../core/data');
 const {
   EPHEMERAL,
   isStaff,
@@ -21,6 +21,7 @@ const {
   baseName,
   getCustomerId,
   parseOrderAmount,
+  tryLock,
 } = require('../core/helpers');
 const {
   orderHeadline,
@@ -28,6 +29,7 @@ const {
   setStatusField,
   stageFromEmbed,
   getAmount,
+  isPaid,
   isRobuxOrder,
   ticketRows,
   vouchRow,
@@ -41,6 +43,8 @@ const {
   markSent,
   showSentModal,
   runOrderCommand,
+  PAYMENT_REQUIRED_MESSAGE,
+  BUSY_MESSAGE,
 } = require('../core/orderActions');
 
 // Command name. You can change it in messages.js by adding  editorder: 'edit',  to commandNames.
@@ -188,7 +192,7 @@ async function showEditModal(interaction) {
   const priceInput = new TextInputBuilder()
     .setCustomId('price_amount')
     .setLabel(`New price in ${CURRENCY} (or leave blank)`)
-    .setPlaceholder(`Current: ${formatPrice(entry.amount)}`)
+    .setPlaceholder(`Current: ${orderPriceText(entry)}`)
     .setStyle(TextInputStyle.Short)
     .setRequired(false)
     .setMaxLength(10);
@@ -322,6 +326,8 @@ async function editOrderForm(interaction) {
     return interaction.reply({ content: parsed.error, flags: EPHEMERAL });
   }
   const amount = parsed.amount;
+  // An edit prices the order again at the current rate and saves it on the entry
+  const price = robuxPrice(amount);
 
   // Stock left after every OTHER waiting order (this order's own old amount does not count)
   const available = availableStock(interaction.channel.id);
@@ -335,21 +341,22 @@ async function editOrderForm(interaction) {
   const embed = EmbedBuilder.from(message.embeds[0]);
   const fields = (embed.data.fields || []).map((f) => {
     if (f.name === 'Robux Amount') return { ...f, value: amount.toLocaleString() };
-    if (f.name === 'Price') return { ...f, value: formatPrice(amount) };
+    if (f.name === 'Price') return { ...f, value: formatPeso(price) };
     return f;
   });
   embed.setFields(fields);
-  embed.setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPrice(amount)));
+  embed.setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPeso(price)));
   embed.setFooter({ text: `Rate: ${CURRENCY}${data.rate} per 100 Robux` });
   await message.edit({ embeds: [embed] });
 
   // Keep the first amount so the ticket log can show "originally ..."
   if (!entry.originalAmount) entry.originalAmount = entry.amount;
   entry.amount = amount;
+  entry.price = price;
   saveData();
 
   // Update the ticket log (audit channel) with the new amount (not awaited, never blocks)
-  updateTicketLogOrder(entry, amount, formatPrice(amount));
+  updateTicketLogOrder(entry, amount, formatPeso(price));
 
   await interaction.channel.send({
     content: `<@${entry.userId}>`,
@@ -360,7 +367,7 @@ async function editOrderForm(interaction) {
         .setDescription(
           fill(M.orderUpdated.text, { staff: `${interaction.user}` }) +
           '\n\n' +
-          orderHeadline(`${amount.toLocaleString()} Robux`, formatPrice(amount))
+          orderHeadline(`${amount.toLocaleString()} Robux`, formatPeso(price))
         )
         .setTimestamp(),
     ],
@@ -369,7 +376,8 @@ async function editOrderForm(interaction) {
   return interaction.editReply('✏️ Order updated.');
 }
 
-// Complete Order -> staff only. Deducts stock only if "Sent" was not pressed yet.
+// Complete Order -> staff only. Holds the ticket's lock, so a double-click (or a vouch at the same
+// moment) can't complete the order twice and count it twice in the shop stats.
 async function completeOrderButton(interaction) {
   if (!isStaff(interaction.member)) {
     return interaction.reply({
@@ -378,7 +386,31 @@ async function completeOrderButton(interaction) {
     });
   }
 
-  const embed = EmbedBuilder.from(interaction.message.embeds[0]);
+  const release = tryLock(`order:${interaction.channel.id}`);
+  if (!release) {
+    return interaction.reply({ content: BUSY_MESSAGE, flags: EPHEMERAL });
+  }
+  try {
+    await completeOrder(interaction);
+  } finally {
+    release();
+  }
+}
+
+// Deducts stock only if "Sent" was not pressed yet.
+async function completeOrder(interaction) {
+  // Read the ticket message again: the copy that came with the click can be a few seconds old
+  let mainMessage = interaction.message;
+  try {
+    mainMessage = await interaction.channel.messages.fetch({
+      message: interaction.message.id,
+      force: true,
+    });
+  } catch {
+    // keep the copy we have
+  }
+
+  const embed = EmbedBuilder.from(mainMessage.embeds[0]);
   const stage = stageFromEmbed(embed);
   if (stage === 'completed') {
     return interaction.reply({
@@ -387,11 +419,17 @@ async function completeOrderButton(interaction) {
     });
   }
 
+  // Same safety as the Sent button: no completing an order that was never marked as paid
+  // (after "Sent" the payment was already checked)
+  if (stage !== 'sent' && !isPaid(embed)) {
+    return interaction.reply({ content: PAYMENT_REQUIRED_MESSAGE, flags: EPHEMERAL });
+  }
+
   let amount = getAmount(embed);
   const entry = data.queue.find((e) => e.channelId === interaction.channel.id);
   if (isRobuxOrder(embed) && entry && entry.amount > 0 && entry.amount !== amount) {
     amount = entry.amount;
-    syncOrderAmount(embed, amount);
+    syncOrderAmount(embed, amount, entry.price);
   }
 
   // Stock was already deducted when the order was marked as Sent

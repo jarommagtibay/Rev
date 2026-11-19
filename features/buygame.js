@@ -182,6 +182,7 @@ async function createTicket(interaction) {
     amount: 0,
     joinedAt: Date.now(),
     notifiedNext: false,
+    shownPosition: `#${position}`,
   };
   data.queue.push(entry);
   saveData();

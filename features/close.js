@@ -3,7 +3,7 @@ const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { COLOR } = require('../config');
 const client = require('../core/client');
 const M = require('../messages');
-const { data, formatPrice, formatPeso } = require('../core/data');
+const { data, formatPeso, orderPriceText } = require('../core/data');
 const { EPHEMERAL, isStaff, fromTemplate, getCustomerId } = require('../core/helpers');
 const { logTicketTranscript } = require('../core/audit');
 
@@ -37,7 +37,7 @@ async function sendCustomerDmReceipt(channel, closedByUser) {
     if (entry && entry.type === 'game') {
       orderLine = `**Product:** ${entry.label} (${entry.gameName})\n**Price:** ${formatPeso(entry.price)}`;
     } else if (entry) {
-      orderLine = `**Product:** ${entry.amount.toLocaleString()} Robux\n**Price:** ${formatPrice(entry.amount)}`;
+      orderLine = `**Product:** ${entry.amount.toLocaleString()} Robux\n**Price:** ${orderPriceText(entry)}`;
     }
 
     const dmEmbed = new EmbedBuilder()

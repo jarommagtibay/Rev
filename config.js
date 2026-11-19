@@ -35,16 +35,22 @@ const SHOP_IMAGES = {
   closed: 'shop-closed.png',
 };
 
-// Payment QR images (upload both next to index.js)
-const QR_FILES = {
-  hixsly: path.join(ROOT, 'payment-qr-hixsly.png'),
-  ysha: path.join(ROOT, 'payment-qr-ysha.png'),
-};
-const QR_NAMES = { hixsly: 'Hixsly', ysha: 'Ysha' };
-const QR_DETAILS = {
-  hixsly: process.env.PAYMENT_HIXSLY || '',
-  ysha: process.env.PAYMENT_YSHA || '',
-};
+// Who can be paid. To add or remove a payee, edit THIS list only: the "Pay to ..." buttons in the
+// ticket and the QR handling are built from it.
+//   key     short id, lowercase letters / numbers / _ only (it becomes the button id pay_<key>)
+//   name    shown on the button and in the QR message
+//   qrFile  QR picture, upload it next to index.js
+//   details account / GCash number shown for copying (put it in .env as PAYMENT_<KEY>)
+// Discord allows at most 25 buttons in a message, the ticket shows the first 5.
+const PAYEES = [
+  { key: 'hixsly', name: 'Hixsly', qrFile: 'payment-qr-hixsly.png', details: process.env.PAYMENT_HIXSLY },
+  { key: 'ysha', name: 'Ysha', qrFile: 'payment-qr-ysha.png', details: process.env.PAYMENT_YSHA },
+].map((p) => ({ ...p, qrFile: path.join(ROOT, p.qrFile), details: p.details || '' }));
+
+// Lookups by key (used by the payment buttons)
+const QR_FILES = Object.fromEntries(PAYEES.map((p) => [p.key, p.qrFile]));
+const QR_NAMES = Object.fromEntries(PAYEES.map((p) => [p.key, p.name]));
+const QR_DETAILS = Object.fromEntries(PAYEES.map((p) => [p.key, p.details]));
 
 // Sticker images shown in the ticket (upload them next to index.js)
 const STICKERS = {
@@ -75,6 +81,7 @@ module.exports = {
   MAX_TICKETS_PER_PRODUCT,
   COLOR,
   SHOP_IMAGES,
+  PAYEES,
   QR_FILES,
   QR_NAMES,
   QR_DETAILS,

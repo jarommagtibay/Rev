@@ -1,9 +1,10 @@
 // Audit log: posts a short record in a private staff channel every time a customer creates a ticket.
 // Set AUDIT_CHANNEL_ID in your .env (make that channel staff-only). If it is not set, nothing is logged.
+const path = require('path');
 const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
-const { COLOR, AUDIT_CHANNEL_ID } = require('../config');
+const { COLOR, AUDIT_CHANNEL_ID, STICKERS, PAYEES } = require('../config');
 const client = require('./client');
-const { data, saveData, formatPrice, formatPeso } = require('./data');
+const { data, saveData, formatPeso, orderPriceText } = require('./data');
 const { getCustomerId } = require('./helpers');
 
 // Accounts newer than this are marked with a warning (common sign of scammers / alt accounts)
@@ -142,7 +143,75 @@ function formatText(content) {
   return text;
 }
 
-function buildHtmlTranscript(channel, sortedMessages) {
+// ---------- Pictures in transcripts ----------
+// Discord picture links stop working after a while, and the ticket channel is deleted when it is
+// closed. So the pictures people sent (payment receipts, delivery proof) are downloaded now and put
+// INSIDE the transcript file. Sticker and QR pictures are skipped (same pictures in every ticket).
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // one picture
+const MAX_TOTAL_IMAGE_BYTES = 5 * 1024 * 1024; // all pictures together (keeps the file under Discord's upload limit)
+const DOWNLOAD_TIMEOUT = 8000;
+// Only Discord's own servers are downloaded from. A link a customer pasted is never fetched.
+const DISCORD_CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
+const SKIPPED_FILE_NAMES = new Set([
+  ...Object.values(STICKERS).map((n) => n.toLowerCase()),
+  ...PAYEES.map((p) => path.basename(p.qrFile).toLowerCase()),
+]);
+
+function isDiscordCdn(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && DISCORD_CDN_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isDecorativeImage(url) {
+  try {
+    return SKIPPED_FILE_NAMES.has(path.basename(new URL(url).pathname).toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+// Returns Map<picture url, data: URI> for the pictures that fit the size limits.
+// Never throws: a picture that can't be downloaded just stays a normal link.
+async function inlineImages(messages) {
+  const images = new Map();
+  const wanted = [];
+  for (const m of messages) {
+    for (const att of m.attachments ? m.attachments.values() : []) {
+      const isImg = (att.contentType || '').startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(att.name || '');
+      if (isImg) wanted.push({ url: att.url, size: att.size });
+    }
+    for (const e of m.embeds || []) {
+      if (e.image && e.image.url) wanted.push({ url: e.image.url, size: 0 });
+    }
+  }
+
+  let total = 0;
+  for (const { url, size } of wanted) {
+    if (images.has(url) || !isDiscordCdn(url) || isDecorativeImage(url)) continue;
+    if (size > MAX_IMAGE_BYTES) continue;
+    if (total >= MAX_TOTAL_IMAGE_BYTES) break;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT) });
+      if (!res.ok) continue;
+      const type = res.headers.get('content-type') || '';
+      if (!type.startsWith('image/')) continue;
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length > MAX_IMAGE_BYTES || total + buffer.length > MAX_TOTAL_IMAGE_BYTES) continue;
+      total += buffer.length;
+      images.set(url, `data:${type};base64,${buffer.toString('base64')}`);
+    } catch (err) {
+      // could not download this one, keep the link
+    }
+  }
+  return images;
+}
+
+// images = Map from inlineImages(). Pictures that are not in it are shown from their Discord link.
+function buildHtmlTranscript(channel, sortedMessages, images = new Map()) {
   const channelName = escapeHtml(channel.name);
   const total = sortedMessages.length;
   const closedDate = new Date().toUTCString();
@@ -171,7 +240,16 @@ function buildHtmlTranscript(channel, sortedMessages) {
                 `<div class="embed-field"><div class="field-name">${escapeHtml(f.name)}</div><div class="field-val">${formatText(f.value)}</div></div>`
             )
             .join('');
-          return `<div class="embed">${title}${desc}${fields}</div>`;
+          let picture = '';
+          if (e.image && e.image.url && !isDecorativeImage(e.image.url)) {
+            // Only pictures that are saved in the file or hosted by Discord. A picture from a link
+            // the customer pasted is never loaded when staff open the transcript.
+            const saved = images.get(e.image.url);
+            if (saved || isDiscordCdn(e.image.url)) {
+              picture = `<img class="embed-img" src="${saved || e.image.url}" alt="" />`;
+            }
+          }
+          return `<div class="embed">${title}${desc}${fields}${picture}</div>`;
         })
         .join('');
 
@@ -180,7 +258,10 @@ function buildHtmlTranscript(channel, sortedMessages) {
         .map((att) => {
           const isImg = (att.contentType || '').startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(att.name || '');
           if (isImg) {
-            return `<div class="attachment"><a href="${att.url}" target="_blank"><img src="${att.url}" alt="${escapeHtml(att.name || 'Image')}" /></a></div>`;
+            const saved = images.get(att.url);
+            const alt = escapeHtml(att.name || 'Image');
+            if (saved) return `<div class="attachment"><img src="${saved}" alt="${alt}" /></div>`;
+            return `<div class="attachment"><a href="${att.url}" target="_blank"><img src="${att.url}" alt="${alt}" /></a></div>`;
           }
           return `<div class="attachment"><a href="${att.url}" target="_blank" style="color:#00a8fc; text-decoration:none;">📎 ${escapeHtml(att.name || 'Attachment')}</a></div>`;
         })
@@ -333,6 +414,13 @@ function buildHtmlTranscript(channel, sortedMessages) {
   .attachment {
     margin-top: 8px;
   }
+  .embed-img {
+    max-width: 320px;
+    max-height: 240px;
+    border-radius: 6px;
+    display: block;
+    margin-top: 8px;
+  }
   .attachment img {
     max-width: 320px;
     max-height: 240px;
@@ -353,6 +441,22 @@ function buildHtmlTranscript(channel, sortedMessages) {
 </html>`;
 }
 
+// Fetches ALL messages from a channel (pages through the API, 100 at a time)
+async function fetchAllMessages(channel) {
+  const all = [];
+  let lastId;
+  while (true) {
+    const options = { limit: 100 };
+    if (lastId) options.before = lastId;
+    const batch = await channel.messages.fetch(options);
+    if (batch.size === 0) break;
+    all.push(...batch.values());
+    lastId = batch.last().id;
+    if (batch.size < 100) break;
+  }
+  return all;
+}
+
 // Generates an HTML transcript of the ticket and uploads it to AUDIT_CHANNEL_ID.
 // Never throws, so close can never be blocked by transcript generation.
 async function logTicketTranscript(channel, closedByUser) {
@@ -361,12 +465,14 @@ async function logTicketTranscript(channel, closedByUser) {
     const auditChannel = await client.channels.fetch(AUDIT_CHANNEL_ID);
     if (!auditChannel) return;
 
-    const messages = await channel.messages.fetch({ limit: 100 });
-    const sorted = Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-    const html = buildHtmlTranscript(channel, sorted);
-    const file = new AttachmentBuilder(Buffer.from(html, 'utf-8'), {
-      name: `transcript-${channel.name}.html`,
-    });
+    const messages = await fetchAllMessages(channel);
+    const sorted = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    const images = await inlineImages(sorted);
+    const makeFile = (withImages) =>
+      new AttachmentBuilder(
+        Buffer.from(buildHtmlTranscript(channel, sorted, withImages ? images : new Map()), 'utf-8'),
+        { name: `transcript-${channel.name}.html` }
+      );
 
     const customerId = getCustomerId(channel);
     const entry = data.queue.find((e) => e.channelId === channel.id);
@@ -374,7 +480,7 @@ async function logTicketTranscript(channel, closedByUser) {
     if (entry && entry.type === 'game') {
       orderInfo = `${entry.label} (${entry.gameName}) • ${formatPeso(entry.price)}`;
     } else if (entry) {
-      orderInfo = `${entry.amount.toLocaleString()} Robux • ${formatPrice(entry.amount)}`;
+      orderInfo = `${entry.amount.toLocaleString()} Robux • ${orderPriceText(entry)}`;
     }
 
     const embed = new EmbedBuilder()
@@ -404,7 +510,14 @@ async function logTicketTranscript(channel, closedByUser) {
       )
       .setTimestamp();
 
-    await auditChannel.send({ embeds: [embed], files: [file], allowedMentions: { parse: [] } });
+    try {
+      await auditChannel.send({ embeds: [embed], files: [makeFile(true)], allowedMentions: { parse: [] } });
+    } catch (err) {
+      if (images.size === 0) throw err;
+      // Most likely the file was too big with the pictures inside: send it with links instead
+      console.warn('Transcript with pictures could not be uploaded, sending it without them:', err.message);
+      await auditChannel.send({ embeds: [embed], files: [makeFile(false)], allowedMentions: { parse: [] } });
+    }
   } catch (err) {
     console.error('Could not log ticket transcript:', err);
   }

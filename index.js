@@ -4,11 +4,21 @@ const fs = require('fs');
 const path = require('path');
 const { Events, REST, Routes } = require('discord.js');
 
-const { TOKEN, CLIENT_ID, GUILD_ID } = require('./config');
+const { TOKEN, CLIENT_ID, GUILD_ID, STAFF_ROLE_ID } = require('./config');
 const client = require('./core/client');
 const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL } = require('./core/helpers');
+
+// Fail fast if critical config is missing
+const required = { TOKEN, CLIENT_ID, GUILD_ID, STAFF_ROLE_ID };
+const missing = Object.entries(required).filter(([, v]) => !v).map(([k]) => k);
+if (missing.length > 0) {
+  throw new Error(
+    `Missing required .env variables: ${missing.join(', ')}. ` +
+    'Make sure your .env is loaded (e.g. node --env-file=.env index.js).'
+  );
+}
 
 // Keep the bot alive if something unexpected fails: log it instead of crashing
 process.on('unhandledRejection', (err) => {
@@ -78,10 +88,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } catch (err) {
     console.error(err);
-    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-      interaction
-        .reply({ content: 'Something went wrong.', flags: EPHEMERAL })
-        .catch(() => { });
+    if (interaction.isRepliable()) {
+      const msg = { content: 'Something went wrong.', flags: EPHEMERAL };
+      const p = interaction.deferred || interaction.replied
+        ? interaction.followUp(msg)
+        : interaction.reply(msg);
+      p.catch(() => { });
     }
   }
 });

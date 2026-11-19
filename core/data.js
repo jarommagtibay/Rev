@@ -61,10 +61,14 @@ function saveData() {
   }
 }
 
+// Price in pesos (a whole number) of a Robux amount at the CURRENT rate.
+// Use this once when an order is created or edited, then store it on the queue entry.
+function robuxPrice(amount) {
+  return Math.round((amount * data.rate) / 100);
+}
+
 function formatPrice(amount) {
-  // Always a whole number
-  const price = Math.round((amount * data.rate) / 100);
-  return `${CURRENCY}${price.toLocaleString('en-US')}`;
+  return `${CURRENCY}${robuxPrice(amount).toLocaleString('en-US')}`;
 }
 
 // Fixed price in pesos (used for game packages)
@@ -72,9 +76,25 @@ function formatPeso(amount) {
   return `${CURRENCY}${Number(amount).toLocaleString('en-US')}`;
 }
 
+// Price text of a queue entry. Uses the price saved on the entry, so changing the rate with /setup
+// never reprices an order that is already open. Entries saved before prices were stored
+// (old Robux orders) fall back to the current rate.
+function orderPriceText(entry) {
+  if (typeof entry.price === 'number') return formatPeso(entry.price);
+  return formatPrice(entry.amount);
+}
+
 // Checks if a Discord user id is blacklisted from opening tickets
 function isBlacklisted(userId) {
   return Array.isArray(data.blacklist) && data.blacklist.some((b) => b.userId === userId);
 }
 
-module.exports = { data, saveData, formatPrice, formatPeso, isBlacklisted };
+module.exports = {
+  data,
+  saveData,
+  robuxPrice,
+  formatPrice,
+  formatPeso,
+  orderPriceText,
+  isBlacklisted,
+};
