@@ -71,6 +71,70 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('Could not sync queue:', err);
   }
+
+  // Periodic ticket inactivity check (runs every 30 minutes)
+  // Sends a gentle reminder after 12h of inactivity; auto-holds if unpaid after 24h
+  setInterval(async () => {
+    try {
+      const now = Date.now();
+      const guild = await client.guilds.fetch(GUILD_ID);
+
+      for (const entry of [...data.queue]) {
+        if (!entry.channelId) continue;
+        const channel = guild.channels.cache.get(entry.channelId) || (await guild.channels.fetch(entry.channelId).catch(() => null));
+        if (!channel) continue;
+
+        const ageMs = now - (entry.joinedAt || now);
+        const hours = ageMs / (1000 * 60 * 60);
+
+        // Fetch last message to see when the channel was active
+        const messages = await channel.messages.fetch({ limit: 1 }).catch(() => null);
+        const lastMsg = messages ? messages.first() : null;
+        const lastActivity = lastMsg ? lastMsg.createdTimestamp : entry.joinedAt || now;
+        const silenceHours = (now - lastActivity) / (1000 * 60 * 60);
+
+        // 12 hours silence reminder
+        if (silenceHours >= 12 && !entry._inactivityReminded) {
+          entry._inactivityReminded = true;
+          saveData();
+          await channel.send({
+            content: `<@${entry.userId}>`,
+            embeds: [
+              {
+                color: 0x94030f,
+                title: '⏰ Ticket Inactivity Notice',
+                description:
+                  'Hello! This ticket has been idle for over 12 hours.\n' +
+                  'Please send your payment receipt or message our staff if you still wish to proceed, otherwise this ticket may be placed on hold.',
+              },
+            ],
+          }).catch(() => {});
+        }
+
+        // 24 hours silence: put on hold if not already on hold
+        if (silenceHours >= 24 && !entry.onHold) {
+          entry.onHold = true;
+          entry.holdReason = 'Auto-hold: 24+ hours of inactivity';
+          saveData();
+          await channel.send({
+            content: `<@${entry.userId}>`,
+            embeds: [
+              {
+                color: 0x94030f,
+                title: '⏸️ Order Automatically Placed on Hold',
+                description:
+                  'This ticket was placed on hold due to inactivity (24+ hours). Reserved stock has been released.\n' +
+                  'When you are ready, tag staff in this ticket to resume your position!',
+              },
+            ],
+          }).catch(() => {});
+          await refreshQueue(guild);
+        }
+      }
+    } catch (err) {
+      console.error('Error during ticket inactivity check:', err);
+    }
+  }, 30 * 60 * 1000);
 });
 
 // If a ticket channel is deleted (closed or manually), remove it from the queue
