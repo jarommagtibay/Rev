@@ -19,7 +19,7 @@ function loadData() {
       stockPostedAt: d.stockPostedAt || 0,
       totalOrders: typeof d.totalOrders === 'number' ? d.totalOrders : 0,
       totalVouches: typeof d.totalVouches === 'number' ? d.totalVouches : 0,
-      totalRobuxDelivered: typeof d.totalRobuxDelivered === 'number' ? d.totalRobuxDelivered : 0,
+      totalRobuxDelivered: typeof d.totalRobuxDelivered === 'number' ? d.totalRobuxDelivered : (parseInt(d.totalRobuxDelivered, 10) || 0),
       blacklist: Array.isArray(d.blacklist) ? d.blacklist : [],
       staffStats: d.staffStats && typeof d.staffStats === 'object' ? d.staffStats : {},
       ordersLog: Array.isArray(d.ordersLog) ? d.ordersLog : [],
