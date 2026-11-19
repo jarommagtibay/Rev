@@ -36,6 +36,7 @@ const commandNames = {
   hold: 'hold',              // staff: put ticket on hold and adjust queue
   unhold: 'unhold',          // staff: resume a held ticket
   move: 'move',              // staff: move ticket position in queue
+  staffhelp: 'staffhelp',    // staff: full command and workflow cheat sheet
 };
 
 module.exports = {
