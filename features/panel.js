@@ -40,13 +40,17 @@ async function postPanel(interaction) {
       .setStyle(ButtonStyle.Danger)
   );
 
-  const row = new ActionRowBuilder().addComponents(buttons);
+  // Discord limits action rows to at most 5 buttons each (and at most 5 rows)
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+  }
 
   // Post in BUY_CHANNEL_ID if set, otherwise in the current channel
   const buyChannel = BUY_CHANNEL_ID
     ? await client.channels.fetch(BUY_CHANNEL_ID)
     : interaction.channel;
-  await buyChannel.send({ embeds: [embed], components: [row] });
+  await buyChannel.send({ embeds: [embed], components: rows });
   await interaction.reply({ content: 'Panel posted.', flags: EPHEMERAL });
 }
 

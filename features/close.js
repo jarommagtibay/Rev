@@ -3,6 +3,7 @@ const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { COLOR } = require('../config');
 const M = require('../messages');
 const { EPHEMERAL, isStaff, fromTemplate } = require('../core/helpers');
+const { logTicketTranscript } = require('../core/audit');
 
 const commands = [
   new SlashCommandBuilder()
@@ -21,6 +22,23 @@ function closingMessage(user) {
   return { embeds: [embed] };
 }
 
+// Executes close: sends closing message, archives transcript to AUDIT_CHANNEL_ID, and deletes channel
+async function executeClose(interaction) {
+  await interaction.reply(closingMessage(interaction.user));
+
+  // Archive transcript in the background
+  try {
+    await logTicketTranscript(interaction.channel, interaction.user);
+  } catch (err) {
+    console.error('Could not archive transcript before deletion:', err);
+  }
+
+  setTimeout(() => {
+    // The channelDelete event removes it from the queue automatically
+    interaction.channel.delete().catch(console.error);
+  }, 4000);
+}
+
 // /closeticket -> staff only, inside a ticket channel
 async function closeTicketCommand(interaction) {
   if (!(interaction.channel.topic || '').startsWith('ticket:')) {
@@ -37,11 +55,7 @@ async function closeTicketCommand(interaction) {
     });
   }
 
-  await interaction.reply(closingMessage(interaction.user));
-  setTimeout(() => {
-    // The channelDelete event removes it from the queue automatically
-    interaction.channel.delete().catch(console.error);
-  }, 5000);
+  await executeClose(interaction);
 }
 
 // Close Ticket button -> staff only
@@ -53,11 +67,7 @@ async function closeTicketButton(interaction) {
     });
   }
 
-  await interaction.reply(closingMessage(interaction.user));
-  setTimeout(() => {
-    // The channelDelete event removes it from the queue automatically
-    interaction.channel.delete().catch(console.error);
-  }, 5000);
+  await executeClose(interaction);
 }
 
 async function handle(interaction) {

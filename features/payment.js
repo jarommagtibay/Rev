@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
-const { COLOR, QR_FILES, QR_NAMES } = require('../config');
+const { COLOR, QR_FILES, QR_NAMES, QR_DETAILS } = require('../config');
 const M = require('../messages');
 const { data, formatPrice, formatPeso } = require('../core/data');
 const { EPHEMERAL, isStaff } = require('../core/helpers');
@@ -63,10 +63,15 @@ async function payButton(interaction) {
     amountLine = `Pay\n## ${formatPrice(entry.amount)}\nfor **${entry.amount.toLocaleString()} Robux**\n\n`;
   }
 
+  const details = QR_DETAILS && QR_DETAILS[key];
+  const copyLine = details
+    ? `\n\n📱 **Account / GCash (tap to copy on mobile):**\n\`\`\`\n${details}\n\`\`\``
+    : '';
+
   const qrEmbed = new EmbedBuilder()
     .setTitle(`💳  Pay to ${QR_NAMES[key]}`)
     .setColor(COLOR)
-    .setDescription(`${amountLine}Send your receipt in this ticket.\n> 🧾  **No receipt = no process!**`)
+    .setDescription(`${amountLine}Send your receipt in this ticket.\n> 🧾  **No receipt = no process!**${copyLine}`)
     .setImage(`attachment://payment-qr-${key}.png`);
 
   return interaction.reply({

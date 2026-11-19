@@ -80,6 +80,10 @@ async function runSetup(interaction) {
 
 // Simple stock embed for the private /stock
 function buildStockEmbed() {
+  const totalOrders = data.totalOrders || 0;
+  const totalVouches = data.totalVouches || 0;
+  const totalRobux = data.totalRobuxDelivered || 0;
+
   return new EmbedBuilder()
     .setTitle('Robux Stock')
     .setColor(COLOR)
@@ -103,6 +107,11 @@ function buildStockEmbed() {
         name: 'Orders in queue',
         value: `${data.queue.length}`,
         inline: true,
+      },
+      {
+        name: '⭐ Shop Record',
+        value: `${totalOrders.toLocaleString()} Orders  •  ${totalVouches.toLocaleString()} Vouches  •  ${totalRobux.toLocaleString()} R$ delivered`,
+        inline: false,
       }
     );
 }
@@ -159,6 +168,14 @@ function buildPublicStock(ping = true) {
       });
     }
   }
+
+  const totalOrders = data.totalOrders || 0;
+  const totalVouches = data.totalVouches || 0;
+  const totalRobux = data.totalRobuxDelivered || 0;
+  embed.addFields({
+    name: '⭐ Shop Statistics & Trust',
+    value: `\`\`\`${totalOrders.toLocaleString()} Orders Completed  •  ${totalVouches.toLocaleString()} Vouches  •  ${totalRobux.toLocaleString()} R$ Delivered\`\`\``,
+  });
 
   // Shop open / closed picture as a small thumbnail (skipped if the file is missing)
   const files = [];

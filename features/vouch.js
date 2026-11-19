@@ -13,12 +13,14 @@ const {
 const { COLOR, VOUCH_CHANNEL_ID } = require('../config');
 const client = require('../core/client');
 const M = require('../messages');
+const { data, saveData } = require('../core/data');
 const {
   EPHEMERAL,
   ticketMessage,
   fromTemplate,
   baseName,
   getCustomerId,
+  parseOrderAmount,
 } = require('../core/helpers');
 const {
   setPositionField,
@@ -223,6 +225,17 @@ async function vouchForm(interaction) {
   // Mark as vouched, and auto-complete the order if staff did not complete it yet
   const wasCompleted = stageFromEmbed(ticketEmbed) === 'completed';
   ticketEmbed.addFields({ name: 'Vouch', value: 'Posted ✅' });
+
+  // Update shop record stats
+  data.totalVouches = (data.totalVouches || 0) + 1;
+  if (!wasCompleted) {
+    data.totalOrders = (data.totalOrders || 0) + 1;
+    if (amountField) {
+      data.totalRobuxDelivered = (data.totalRobuxDelivered || 0) + parseOrderAmount(amountField.value);
+    }
+  }
+  saveData();
+
   if (!wasCompleted) {
     setPositionField(ticketEmbed, 'Done');
     setStatusField(ticketEmbed, `Completed (vouched by ${interaction.user})`);

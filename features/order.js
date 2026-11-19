@@ -407,8 +407,14 @@ async function completeOrderButton(interaction) {
       data.stock -= amount;
     }
     removeFromQueue(interaction.channel.id);
-    saveData();
   }
+
+  // Track shop stats
+  data.totalOrders = (data.totalOrders || 0) + 1;
+  if (isRobuxOrder(embed) && amount > 0) {
+    data.totalRobuxDelivered = (data.totalRobuxDelivered || 0) + amount;
+  }
+  saveData();
 
   embed.setColor(COLOR);
   setPositionField(embed, 'Done');

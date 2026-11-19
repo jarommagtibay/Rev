@@ -41,6 +41,10 @@ const QR_FILES = {
   ysha: path.join(ROOT, 'payment-qr-ysha.png'),
 };
 const QR_NAMES = { hixsly: 'Hixsly', ysha: 'Ysha' };
+const QR_DETAILS = {
+  hixsly: process.env.PAYMENT_HIXSLY || '',
+  ysha: process.env.PAYMENT_YSHA || '',
+};
 
 // Sticker images shown in the ticket (upload them next to index.js)
 const STICKERS = {
@@ -73,6 +77,7 @@ module.exports = {
   SHOP_IMAGES,
   QR_FILES,
   QR_NAMES,
+  QR_DETAILS,
   STICKERS,
   SHOP_CLOSED_TEXT,
 };

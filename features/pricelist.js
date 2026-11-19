@@ -76,7 +76,9 @@ function buildPriceEmbed(category = 'all') {
       value: lines.join('\n'),
     });
 
-    embed.setFooter({ text: 'Prices depend on the current rate • Reveux' });
+    embed.setFooter({
+      text: `⭐ ${(data.totalOrders || 0).toLocaleString()} Orders Done • ${(data.totalVouches || 0).toLocaleString()} Vouches • Reveux`,
+    });
     return embed;
   }
 
@@ -136,7 +138,9 @@ function buildPriceEmbed(category = 'all') {
     });
   }
 
-  embed.setFooter({ text: 'Reveux  •  Prices may change, check before ordering' });
+  embed.setFooter({
+    text: `⭐ ${(data.totalOrders || 0).toLocaleString()} Orders Done • ${(data.totalVouches || 0).toLocaleString()} Vouches • Reveux`,
+  });
   return embed;
 }
 

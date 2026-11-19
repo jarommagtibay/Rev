@@ -17,6 +17,9 @@ function loadData() {
       statusMessageId: d.statusMessageId || null,
       stockMessageId: d.stockMessageId || null,
       stockPostedAt: d.stockPostedAt || 0,
+      totalOrders: typeof d.totalOrders === 'number' ? d.totalOrders : 0,
+      totalVouches: typeof d.totalVouches === 'number' ? d.totalVouches : 0,
+      totalRobuxDelivered: typeof d.totalRobuxDelivered === 'number' ? d.totalRobuxDelivered : 0,
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -36,6 +39,9 @@ function loadData() {
       statusMessageId: null,
       stockMessageId: null,
       stockPostedAt: 0,
+      totalOrders: 0,
+      totalVouches: 0,
+      totalRobuxDelivered: 0,
     };
   }
 }
