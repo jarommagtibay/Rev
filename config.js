@@ -15,6 +15,7 @@ const {
   SHOP_PING_ROLE_ID,
   STOCK_CHANNEL_ID,
   AUDIT_CHANNEL_ID,
+  LOW_STOCK_THRESHOLD: Number(process.env.LOW_STOCK_THRESHOLD) || 500,
 } = process.env;
 
 const ROOT = __dirname;
@@ -76,6 +77,7 @@ module.exports = {
   SHOP_PING_ROLE_ID,
   STOCK_CHANNEL_ID,
   AUDIT_CHANNEL_ID,
+  LOW_STOCK_THRESHOLD,
   ROOT,
   CURRENCY,
   MAX_TICKETS_PER_PRODUCT,

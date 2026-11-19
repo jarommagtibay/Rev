@@ -16,6 +16,8 @@ const {
   SHOP_IMAGES,
   SHOP_PING_ROLE_ID,
   STOCK_CHANNEL_ID,
+  AUDIT_CHANNEL_ID,
+  LOW_STOCK_THRESHOLD,
 } = require('../config');
 const client = require('../core/client');
 const M = require('../messages');
@@ -63,6 +65,9 @@ async function runSetup(interaction) {
   if (stock !== null) data.stock = stock;
   if (rate !== null) data.rate = rate;
   saveData();
+
+  // Stock alerts: auto-close at 0 or warn if below threshold
+  checkStockAlerts(data.stock).catch(() => {});
 
   // New stock or rate -> update the stock board in the stock channel right away
   let note = '';
@@ -286,5 +291,33 @@ async function handle(interaction) {
   return false;
 }
 
+// Checks stock levels and alerts staff or auto-closes shop if 0 stock
+async function checkStockAlerts(currentStock) {
+  if (!AUDIT_CHANNEL_ID) return;
+  try {
+    const auditChan = await client.channels.fetch(AUDIT_CHANNEL_ID).catch(() => null);
+    if (!auditChan) return;
+
+    if (currentStock <= 0 && data.shopOpen) {
+      data.shopOpen = false;
+      saveData();
+      await auditChan.send({
+        content: `🚨 **SHOP AUTO-CLOSED**: Robux stock reached **0**! The shop has been automatically closed to prevent unfillable orders. Use \`/setup stock:<amount>\` and \`/shop status:open\` to reopen.`,
+      });
+    } else if (currentStock > 0 && currentStock <= LOW_STOCK_THRESHOLD && !data._lowStockAlerted) {
+      data._lowStockAlerted = true;
+      saveData();
+      await auditChan.send({
+        content: `⚠️ **LOW STOCK ALERT**: Current Robux stock is **${currentStock.toLocaleString()} R$** (below threshold of ${LOW_STOCK_THRESHOLD.toLocaleString()} R$). Please restock soon!`,
+      });
+    } else if (currentStock > LOW_STOCK_THRESHOLD) {
+      data._lowStockAlerted = false;
+      saveData();
+    }
+  } catch (err) {
+    console.error('Error checking stock alerts:', err);
+  }
+}
+
 // postStockBoard is also used by shop.js to refresh the board when the shop opens or closes
-module.exports = { commands, handle, postStockBoard };
+module.exports = { commands, handle, postStockBoard, checkStockAlerts };

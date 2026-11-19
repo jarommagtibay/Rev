@@ -14,6 +14,74 @@ function relative(timestamp) {
   return `<t:${Math.floor(timestamp / 1000)}:R>`;
 }
 
+// Calculate Levenshtein similarity ratio between two strings (0.0 to 1.0)
+function similarity(s1, s2) {
+  const a = (s1 || '').toLowerCase().trim();
+  const b = (s2 || '').toLowerCase().trim();
+  if (a === b) return 1.0;
+  if (!a || !b) return 0.0;
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  const maxLen = Math.max(m, n);
+  return (maxLen - dp[m][n]) / maxLen;
+}
+
+// Checks order details against known fraud patterns
+function checkFraudSignals(user, details = []) {
+  const flags = [];
+
+  // 1. Account age < 7 days
+  const ageDays = (Date.now() - user.createdTimestamp) / 86400000;
+  if (ageDays < NEW_ACCOUNT_DAYS) {
+    flags.push(`⚠️ **New Discord account** (created ${Math.floor(ageDays)}d ago)`);
+  }
+
+  // 2. Blacklist look-alike check
+  const blacklist = data.blacklist || [];
+  for (const b of blacklist) {
+    if (b.username) {
+      const sim = similarity(user.username, b.username);
+      if (sim >= 0.75 && user.username.toLowerCase() !== b.username.toLowerCase()) {
+        flags.push(`🚨 **Name look-alike** of blacklisted user @${b.username} (${Math.round(sim * 100)}% match)`);
+        break;
+      }
+    }
+  }
+
+  // 3. Same Roblox username ordered by multiple different Discord accounts
+  const robloxUserField = details.find((d) => d.name === 'Account Username');
+  if (robloxUserField && robloxUserField.value) {
+    const rName = robloxUserField.value.trim().toLowerCase();
+    const otherAccounts = new Set();
+    // Check queue
+    for (const q of data.queue || []) {
+      if (q.username && q.username.trim().toLowerCase() === rName && q.userId !== user.id) {
+        otherAccounts.add(q.userId);
+      }
+    }
+    // Check historical orders log
+    for (const ord of data.ordersLog || []) {
+      if (ord.username && ord.username.trim().toLowerCase() === rName && ord.userId !== user.id) {
+        otherAccounts.add(ord.userId);
+      }
+    }
+    if (otherAccounts.size > 0) {
+      flags.push(`⚠️ **Shared Game ID**: Roblox user \`${robloxUserField.value}\` was also ordered by ${otherAccounts.size} other Discord account(s)`);
+    }
+  }
+
+  return flags;
+}
+
 // item    e.g. "1,000 Robux" or "112 Diamonds  •  Mobile Legends"
 // price   e.g. "₱350"
 // details extra fields from the order form: [{ name, value, inline }]
@@ -22,13 +90,13 @@ async function logTicketCreated(interaction, { channel, item, price, details = [
   if (!AUDIT_CHANNEL_ID) return;
   try {
     const user = interaction.user;
-    const ageDays = (Date.now() - user.createdTimestamp) / 86400000;
-    const isNew = ageDays < NEW_ACCOUNT_DAYS;
     const joined = interaction.member && interaction.member.joinedTimestamp;
+    const fraudSignals = checkFraudSignals(user, details);
+    const hasAlert = fraudSignals.length > 0;
 
     const embed = new EmbedBuilder()
-      .setColor(COLOR)
-      .setTitle(isNew ? '🎫  Ticket Created  ⚠️ New account' : '🎫  Ticket Created')
+      .setColor(hasAlert ? 0xff0033 : COLOR)
+      .setTitle(hasAlert ? '🎫  Ticket Created  ⚠️ Security Warning' : '🎫  Ticket Created')
       .setThumbnail(user.displayAvatarURL())
       .addFields(
         { name: 'Customer', value: `${user}\n@${user.username}`, inline: true },
@@ -38,8 +106,17 @@ async function logTicketCreated(interaction, { channel, item, price, details = [
         { name: 'Joined server', value: joined ? relative(joined) : 'Unknown', inline: true },
         { name: 'Order', value: `${item}\n${price}`, inline: true },
         ...details.map((d) => ({ name: d.name, value: d.value || '-', inline: true }))
-      )
-      .setTimestamp();
+      );
+
+    if (hasAlert) {
+      embed.addFields({
+        name: '🛡️ Fraud / Risk Detection Flags',
+        value: fraudSignals.join('\n'),
+        inline: false,
+      });
+    }
+
+    embed.setTimestamp();
 
     const auditChannel = await client.channels.fetch(AUDIT_CHANNEL_ID);
     const posted = await auditChannel.send({ embeds: [embed], allowedMentions: { parse: [] } });

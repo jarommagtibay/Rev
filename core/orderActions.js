@@ -9,7 +9,7 @@ const {
   ModalBuilder,
 } = require('discord.js');
 const { COLOR } = require('../config');
-const { data, saveData, formatPrice, formatPeso, recordStaffAction } = require('./data');
+const { data, saveData, formatPrice, formatPeso, recordStaffAction, recordCompletionDuration, recordCompletedOrder } = require('./data');
 const M = require('../messages');
 const {
   EPHEMERAL,
@@ -33,6 +33,7 @@ const {
   vouchRow,
 } = require('./ticket');
 const { refreshQueue, removeFromQueue } = require('./queue');
+const { checkStockAlerts } = require('../features/stock');
 
 const PAYMENT_REQUIRED_MESSAGE =
   '⚠️ Payment has not been marked as received yet! Please verify the payment and click **Payment Received** first.';
@@ -69,6 +70,10 @@ async function markPaymentReceivedUnlocked(message, channel, user) {
 
   setPaymentField(embed, `Received by ${user}`);
   const entry = data.queue.find((e) => e.channelId === channel.id);
+  if (entry) {
+    entry.paidAt = Date.now();
+    saveData();
+  }
   await message.edit({
     embeds: [embed],
     components: ticketRows(stage, true, isRobuxOrder(embed), Boolean(entry && entry.onHold)),
@@ -93,6 +98,10 @@ async function markProcessingUnlocked(message, channel, user) {
   setStatusField(embed, `Processing by ${user}`);
   recordStaffAction(user.id, user.username, 'processed');
   const entry = data.queue.find((e) => e.channelId === channel.id);
+  if (entry) {
+    entry.processingAt = Date.now();
+    saveData();
+  }
   await message.edit({
     embeds: [embed],
     components: ticketRows('processing', isPaid(embed), isRobuxOrder(embed), Boolean(entry && entry.onHold)),
@@ -148,9 +157,33 @@ async function markSentUnlocked(message, channel, guild, user, proof) {
   }
 
   if (robux) data.stock -= amount;
+  if (entry) {
+    entry.sentAt = Date.now();
+    if (entry.paidAt) {
+      const durationMins = (entry.sentAt - entry.paidAt) / (1000 * 60);
+      recordCompletionDuration(durationMins);
+    }
+    recordCompletedOrder({
+      channelId: channel.id,
+      userId: entry.userId,
+      type: entry.type || 'robux',
+      amount: entry.amount || 0,
+      price: entry.price || 0,
+      gameName: entry.gameName || 'Roblox',
+      label: entry.label || `${entry.amount} Robux`,
+      username: entry.username || '',
+      staff: user.username,
+      sentAt: entry.sentAt,
+      paidAt: entry.paidAt,
+    });
+  }
   removeFromQueue(channel.id);
   recordStaffAction(user.id, user.username, 'sent');
   saveData();
+
+  if (robux) {
+    checkStockAlerts(data.stock).catch(() => {});
+  }
 
   setPositionField(embed, 'Sent');
   setStatusField(embed, `Sent by ${user}`);

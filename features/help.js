@@ -91,6 +91,8 @@ function buildStaffHelpEmbed() {
         name: '🛡️  Staff Tools & Moderation',
         value:
           '• `/staffstats` — Show leaderboard of processed, sent and completed orders per staff member\n' +
+          '• `/report [today|week|all]` — Generate total revenue and sales volume report\n' +
+          '• `/promo <create|delete|list>` — Create and manage promotional discount codes\n' +
           '• `/remind <receipt|vouch|details> [note]` — Ping customer with a polite reminder\n' +
           '• `/note <text>` — Post an internal team note inside the ticket channel\n' +
           '• `/blacklist <add|remove|list>` — Block or unblock users from opening tickets',

@@ -22,6 +22,9 @@ function loadData() {
       totalRobuxDelivered: typeof d.totalRobuxDelivered === 'number' ? d.totalRobuxDelivered : 0,
       blacklist: Array.isArray(d.blacklist) ? d.blacklist : [],
       staffStats: d.staffStats && typeof d.staffStats === 'object' ? d.staffStats : {},
+      ordersLog: Array.isArray(d.ordersLog) ? d.ordersLog : [],
+      promos: Array.isArray(d.promos) ? d.promos : [],
+      completionTimes: Array.isArray(d.completionTimes) ? d.completionTimes : [],
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -46,6 +49,9 @@ function loadData() {
       totalRobuxDelivered: 0,
       blacklist: [],
       staffStats: {},
+      ordersLog: [],
+      promos: [],
+      completionTimes: [],
     };
   }
 }
@@ -101,6 +107,40 @@ function recordStaffAction(userId, username, actionType) {
   saveData();
 }
 
+// Records an order completion into the historical log
+function recordCompletedOrder(order) {
+  if (!Array.isArray(data.ordersLog)) data.ordersLog = [];
+  data.ordersLog.push({
+    id: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    ...order,
+    completedAt: Date.now(),
+  });
+  // Keep the most recent 10,000 orders
+  if (data.ordersLog.length > 10000) {
+    data.ordersLog = data.ordersLog.slice(-10000);
+  }
+  saveData();
+}
+
+// Records completion duration in minutes for rolling ETA estimation
+function recordCompletionDuration(minutes) {
+  if (typeof minutes !== 'number' || minutes <= 0 || isNaN(minutes)) return;
+  if (!Array.isArray(data.completionTimes)) data.completionTimes = [];
+  data.completionTimes.push(Math.round(minutes));
+  if (data.completionTimes.length > 50) {
+    data.completionTimes = data.completionTimes.slice(-50);
+  }
+  saveData();
+}
+
+// Gets average completion time in minutes (default to 20 mins if insufficient data)
+function getAverageETA() {
+  const times = data.completionTimes || [];
+  if (times.length === 0) return 20;
+  const sum = times.reduce((a, b) => a + b, 0);
+  return Math.max(5, Math.round(sum / times.length));
+}
+
 // Checks if a Discord user id is blacklisted from opening tickets
 function isBlacklisted(userId) {
   return Array.isArray(data.blacklist) && data.blacklist.some((b) => b.userId === userId);
@@ -114,5 +154,8 @@ module.exports = {
   formatPeso,
   orderPriceText,
   recordStaffAction,
+  recordCompletedOrder,
+  recordCompletionDuration,
+  getAverageETA,
   isBlacklisted,
 };

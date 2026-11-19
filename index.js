@@ -131,6 +131,32 @@ client.once(Events.ClientReady, async (c) => {
           await refreshQueue(guild);
         }
       }
+
+      // Check for unvouched orders older than 24h to auto-send DM reminder
+      for (const ord of (data.ordersLog || []).slice(-100)) {
+        if (!ord.vouched && !ord._vouchReminded && ord.sentAt) {
+          const hoursSinceSent = (now - ord.sentAt) / (1000 * 60 * 60);
+          if (hoursSinceSent >= 24) {
+            ord._vouchReminded = true;
+            saveData();
+            const customer = await client.users.fetch(ord.userId).catch(() => null);
+            if (customer) {
+              await customer.send({
+                embeds: [
+                  {
+                    color: 0x94030f,
+                    title: '⭐ Vouch Reminder — Revéux Shop',
+                    description:
+                      `Hello ${customer}! Your order for **${ord.label || `${ord.amount} Robux`}** was delivered yesterday.\n\n` +
+                      `If you are satisfied with our service, we would truly appreciate it if you could leave a vouch in the server!\n` +
+                      `Thank you for trusting Revéux!`,
+                  },
+                ],
+              }).catch(() => {});
+            }
+          }
+        }
+      }
     } catch (err) {
       console.error('Error during ticket inactivity check:', err);
     }

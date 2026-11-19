@@ -1,7 +1,7 @@
 // /myorder -> customer or staff checks their current active order status, queue position and ticket link
 const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { COLOR } = require('../config');
-const { data, orderPriceText } = require('../core/data');
+const { data, orderPriceText, getAverageETA } = require('../core/data');
 const { EPHEMERAL } = require('../core/helpers');
 
 const commands = [
@@ -58,12 +58,25 @@ async function showMyOrder(interaction) {
     const pos = activeQueue.findIndex((e) => e.channelId === entry.channelId);
     const posText = entry.onHold ? 'On Hold' : pos >= 0 ? `#${pos + 1}` : 'Processing';
 
+    // Calculate dynamic ETA
+    const avgMins = getAverageETA();
+    let etaText = 'Calculating...';
+    if (entry.onHold) {
+      etaText = 'Paused (On Hold)';
+    } else if (pos === 0) {
+      etaText = '~5 - 10 mins (Next in line!)';
+    } else if (pos > 0) {
+      const estimatedMins = (pos + 1) * avgMins;
+      etaText = `~${estimatedMins} mins (approx. ${avgMins}m / order)`;
+    }
+
     embed.addFields({
       name: `Ticket: ${channelLink}`,
       value:
         `• **Item:** ${item}\n` +
         `• **Price:** ${price}\n` +
         `• **Position in Line:** **${posText}**\n` +
+        `• **Estimated Wait Time:** ⏱️ **${etaText}**\n` +
         `• **Status:** ${statusText}`,
       inline: false,
     });

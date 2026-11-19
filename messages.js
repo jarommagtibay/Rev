@@ -193,7 +193,7 @@ module.exports = {
       },
       {
         name: '💬  Commands you can use',
-        text: `\`/${commandNames.stock}\`  Check the Robux stock and rate (only you can see it)\n\`/${commandNames.calc}\`  Robux calculator: Robux → price, or price → Robux (only you can see it)\n\`/${commandNames.prices}\`  Price list for everything in the shop (only you can see it)\n\`/${commandNames.help}\`  Show this guide (only you can see it)`,
+        text: `\`/${commandNames.stock}\`  Check the Robux stock and rate (only you can see it)\n\`/${commandNames.calc}\`  Robux calculator: Robux → price, or price → Robux (only you can see it)\n\`/${commandNames.prices}\`  Price list for everything in the shop (only you can see it)\n\`/myorder\`  Check your active order, position and estimated delivery time\n\`/history\`  View your completed past orders and loyalty club progress\n\`/${commandNames.help}\`  Show this guide (only you can see it)`,
       },
       {
         name: '📌  Good to know',

@@ -20,6 +20,7 @@ const {
 } = require('../core/ticket');
 const { refreshQueue, availableStock, notEnoughStockMessage } = require('../core/queue');
 const { logTicketCreated } = require('../core/audit');
+const { applyPromoDiscount } = require('./promo');
 
 const commands = [];
 
@@ -122,10 +123,19 @@ async function showForm(interaction) {
     .setRequired(true)
     .setMaxLength(10);
 
+  const promoInput = new TextInputBuilder()
+    .setCustomId('promo_code')
+    .setLabel('Promo Code (Optional)')
+    .setPlaceholder('Enter discount code if you have one')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(20);
+
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),
     new ActionRowBuilder().addComponents(usernameInput),
-    new ActionRowBuilder().addComponents(valueInput)
+    new ActionRowBuilder().addComponents(valueInput),
+    new ActionRowBuilder().addComponents(promoInput)
   );
 
   return interaction.showModal(modal);
@@ -142,6 +152,7 @@ async function createTicket(interaction) {
   const name = interaction.fields.getTextInputValue('account_name').trim();
   const username = interaction.fields.getTextInputValue('account_username').trim();
   const value = interaction.fields.getTextInputValue('amount_value');
+  const promoCode = (interaction.fields.getTextInputValue('promo_code') || '').trim();
 
   const limitMessage = ticketLimitMessage(interaction.guild, interaction.user.id, 'robux', 'Robux');
   if (limitMessage) {
@@ -157,7 +168,23 @@ async function createTicket(interaction) {
   }
   const amount = parsed.amount;
   // The price is decided ONCE here and saved on the queue entry, so a later rate change never reprices it
-  const price = robuxPrice(amount);
+  const basePrice = robuxPrice(amount);
+
+  // Apply promo code discount if provided
+  let price = basePrice;
+  let promoNote = '';
+  if (promoCode) {
+    const res = applyPromoDiscount(promoCode, basePrice);
+    if (res.error) {
+      return interaction.reply({ content: `⚠️ Promo Code Error: ${res.error}`, flags: EPHEMERAL });
+    }
+    price = res.price;
+    if (res.promo) {
+      res.promo.usedCount = (res.promo.usedCount || 0) + 1;
+      saveData();
+      promoNote = ` (Discounted from ${formatPeso(basePrice)} via \`${res.promo.code}\`)`;
+    }
+  }
 
   const available = availableStock();
   if (amount > available) {
@@ -183,7 +210,7 @@ async function createTicket(interaction) {
       { name: 'Account Name', value: `\`\`\`\n${name}\n\`\`\``, inline: true },
       { name: 'Account Username', value: `\`\`\`\n${username}\n\`\`\``, inline: true },
       { name: 'Robux Amount', value: amount.toLocaleString(), inline: true },
-      { name: 'Price', value: formatPeso(price), inline: true },
+      { name: 'Price', value: `${formatPeso(price)}${promoNote}`, inline: true },
       { name: 'Queue Position', value: `#${position}`, inline: true },
       { name: 'Opened by', value: `${interaction.user}` }
     )
