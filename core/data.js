@@ -69,6 +69,37 @@ function saveData() {
   }
 }
 
+// Reconciles and syncs staff completed counts from historical ordersLog
+function syncStaffStats() {
+  if (!data.staffStats) data.staffStats = {};
+  if (!Array.isArray(data.ordersLog)) return;
+
+  const countsById = {};
+  const countsByName = {};
+  for (const o of data.ordersLog) {
+    if (o.staffId) {
+      countsById[o.staffId] = (countsById[o.staffId] || 0) + 1;
+    }
+    if (o.staff) {
+      countsByName[o.staff] = (countsByName[o.staff] || 0) + 1;
+    }
+  }
+
+  let changed = false;
+  for (const [userId, s] of Object.entries(data.staffStats)) {
+    const fromId = countsById[userId] || 0;
+    const fromName = (s.username && countsByName[s.username]) || 0;
+    const logCount = Math.max(fromId, fromName);
+    if (logCount > (s.completed || 0)) {
+      s.completed = logCount;
+      changed = true;
+    }
+  }
+  if (changed) saveData();
+}
+
+syncStaffStats();
+
 // Price in pesos (a whole number) of a Robux amount at the CURRENT rate.
 // Use this once when an order is created or edited, then store it on the queue entry.
 function robuxPrice(amount) {
@@ -158,4 +189,5 @@ module.exports = {
   recordCompletionDuration,
   getAverageETA,
   isBlacklisted,
+  syncStaffStats,
 };

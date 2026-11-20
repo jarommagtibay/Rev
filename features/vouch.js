@@ -13,7 +13,7 @@ const {
 const { COLOR, VOUCH_CHANNEL_ID } = require('../config');
 const client = require('../core/client');
 const M = require('../messages');
-const { data, saveData } = require('../core/data');
+const { data, saveData, recordStaffAction } = require('../core/data');
 const {
   EPHEMERAL,
   ticketMessage,
@@ -31,6 +31,7 @@ const {
   getAmount,
   ticketRows,
   postReceipt,
+  findStaffFromEmbed,
 } = require('../core/ticket');
 
 const commands = [];
@@ -258,6 +259,14 @@ async function postVouch(interaction) {
     data.totalOrders = (data.totalOrders || 0) + 1;
     if (isRobuxOrder(ticketEmbed)) {
       data.totalRobuxDelivered = (data.totalRobuxDelivered || 0) + getAmount(ticketEmbed);
+    }
+    // If not already marked as sent (which already credited completed), credit staff for completing this order
+    const wasSent = stageFromEmbed(ticketEmbed) === 'sent';
+    if (!wasSent) {
+      const staff = findStaffFromEmbed(ticketEmbed, interaction.channel.id);
+      if (staff && staff.userId) {
+        recordStaffAction(staff.userId, staff.username, 'completed');
+      }
     }
   }
   saveData();

@@ -173,12 +173,14 @@ async function markSentUnlocked(message, channel, guild, user, proof) {
       label: entry.label || `${entry.amount} Robux`,
       username: entry.username || '',
       staff: user.username,
+      staffId: user.id,
       sentAt: entry.sentAt,
       paidAt: entry.paidAt,
     });
   }
   removeFromQueue(channel.id);
   recordStaffAction(user.id, user.username, 'sent');
+  recordStaffAction(user.id, user.username, 'completed');
   saveData();
 
   if (robux) {

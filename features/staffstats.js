@@ -1,7 +1,7 @@
 // /staffstats -> staff only: show how many orders each staff member processed, sent and completed
 const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { COLOR } = require('../config');
-const { data } = require('../core/data');
+const { data, syncStaffStats } = require('../core/data');
 const { EPHEMERAL, isStaff } = require('../core/helpers');
 
 const commands = [
@@ -22,6 +22,9 @@ async function handle(interaction) {
     });
     return true;
   }
+
+  // Ensure staff stats are in sync with completed orders
+  syncStaffStats();
 
   const stats = data.staffStats || {};
   const entries = Object.entries(stats);

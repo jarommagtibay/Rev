@@ -276,6 +276,38 @@ async function sendPaymentMessage(channel, priceText, itemText) {
   }
 }
 
+// Finds the staff member associated with an order ticket
+function findStaffFromEmbed(embed, channelId) {
+  if (!embed) return null;
+  const { data: storeData } = require('./data');
+  const fields = embed.data ? (embed.data.fields || []) : (embed.fields || []);
+  const statusField = fields.find((f) => f.name === 'Status');
+  const paymentField = fields.find((f) => f.name === 'Payment');
+
+  for (const f of [statusField, paymentField]) {
+    if (f && f.value) {
+      const match = f.value.match(/<@!?(\d+)>/);
+      if (match) {
+        const userId = match[1];
+        const known = storeData && storeData.staffStats && storeData.staffStats[userId];
+        return { userId, username: (known && known.username) || '' };
+      }
+    }
+  }
+
+  if (channelId && storeData && Array.isArray(storeData.ordersLog)) {
+    const logged = storeData.ordersLog.find((o) => o.channelId === channelId);
+    if (logged) {
+      if (logged.staffId) return { userId: logged.staffId, username: logged.staff || '' };
+      if (logged.staff && storeData.staffStats) {
+        const found = Object.entries(storeData.staffStats).find(([id, s]) => s.username === logged.staff);
+        if (found) return { userId: found[0], username: found[1].username };
+      }
+    }
+  }
+  return null;
+}
+
 module.exports = {
   orderHeadline,
   setPositionField,
@@ -292,4 +324,5 @@ module.exports = {
   makeSafeName,
   createTicketChannel,
   sendPaymentMessage,
+  findStaffFromEmbed,
 };

@@ -11,7 +11,7 @@ const {
 const { CURRENCY, COLOR } = require('../config');
 const M = require('../messages');
 const { GAMES } = require('../catalog');
-const { data, saveData, formatPeso, robuxPrice, orderPriceText, recordStaffAction } = require('../core/data');
+const { data, saveData, formatPeso, robuxPrice, orderPriceText, recordStaffAction, recordCompletedOrder } = require('../core/data');
 const {
   EPHEMERAL,
   isStaff,
@@ -445,6 +445,23 @@ async function completeOrder(interaction) {
       data.stock -= amount;
     }
     removeFromQueue(interaction.channel.id);
+
+    // Record order in completion log and credit staff
+    recordCompletedOrder({
+      channelId: interaction.channel.id,
+      userId: (entry && entry.userId) || getCustomerId(interaction.channel),
+      type: isRobuxOrder(embed) ? 'robux' : 'game',
+      amount: amount || 0,
+      price: (entry && entry.price) || 0,
+      gameName: (entry && entry.gameName) || 'Roblox',
+      label: (entry && entry.label) || `${amount} Robux`,
+      username: (entry && entry.username) || '',
+      staff: interaction.user.username,
+      staffId: interaction.user.id,
+      sentAt: Date.now(),
+      paidAt: (entry && entry.paidAt) || Date.now(),
+    });
+    recordStaffAction(interaction.user.id, interaction.user.username, 'completed');
   }
 
   // Track shop stats
@@ -452,7 +469,6 @@ async function completeOrder(interaction) {
   if (isRobuxOrder(embed) && amount > 0) {
     data.totalRobuxDelivered = (data.totalRobuxDelivered || 0) + amount;
   }
-  recordStaffAction(interaction.user.id, interaction.user.username, 'completed');
   saveData();
 
   embed.setColor(COLOR);
