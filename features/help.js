@@ -278,7 +278,7 @@ function buildCustomerHelpEmbed(category = 'overview') {
           {
             name: '🌙  Staff Shift Mode (/duty)',
             value:
-              'If staff members are resting or off-duty, a **Night-Time Notice** will appear in new tickets. You can still order, and your ticket will be fulfilled first thing in the morning!',
+              'If staff members are taking a break or off-duty, an **Off-Duty Notice** will appear in new tickets. Your spot is reserved in the queue, and staff will send the payment QR code as soon as they return!',
           },
           {
             name: '🔒  Transcript Archives',
@@ -361,7 +361,7 @@ function buildStaffHelpEmbed() {
       {
         name: '🛡️  Staff Tools & Moderation',
         value:
-          '• `/duty <on|off|status> [note]` — Toggle staff on/off duty status (shows night notice if all staff off-duty)\n' +
+          '• `/duty <on|off|status> [note]` — Toggle staff on/off duty status (shows off-duty notice if all staff off-duty)\n' +
           '• `/staffstats` — Show leaderboard of processed, sent and completed orders per staff member\n' +
           '• `/report [today|week|all]` — Generate total revenue and sales volume report\n' +
           '• `/promo <create|delete|list|give>` — Create, manage, or give promo codes to customers in tickets\n' +

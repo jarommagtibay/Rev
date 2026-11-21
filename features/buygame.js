@@ -269,19 +269,20 @@ async function createTicket(interaction) {
   }
   saveData();
 
-  // If all staff are currently off-duty, display night-time notice
+  // If all staff are currently off-duty, display off-duty notice
   if (areAllStaffOffDuty()) {
     const note = getOffDutyNote();
-    const noteLine = note ? `\n\n**Staff Notes:**\n${note}` : '';
+    const noteLine = note ? `\n\n**Staff Note:**\n${note}` : '';
     await channel.send({
       embeds: [
         new EmbedBuilder()
           .setColor(0x2b2d31)
-          .setTitle('🌙  Night-Time Notice: Staff Is Currently Off-Duty')
+          .setTitle('⏸️  Staff Notice: Staff Is Currently Off-Duty')
           .setDescription(
-            'Our staff team is currently resting / off-duty for the night.\n\n' +
-            '✅ **Your order is saved in the queue:** Please go ahead and send your payment receipt.\n' +
-            `🌅 **Morning Fulfillment:** Orders will be fulfilled first thing in the morning when staff returns online!${noteLine}`
+            'Our staff team is currently taking a break or off-duty.\n\n' +
+            '📋 **Order Reserved in Queue:** Your order has been placed and saved in the queue.\n' +
+            '💳 **Payment QR Code:** As soon as staff is back on-duty, they will send the payment QR code here in this ticket.\n' +
+            `⚡ **Fulfillment:** Your order will be prioritized and fulfilled as soon as staff returns online!${noteLine}`
           )
           .setFooter({ text: 'Reveux Shop • Orders are fulfilled in queue order' })
           .setTimestamp(),

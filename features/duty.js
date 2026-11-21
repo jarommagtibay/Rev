@@ -85,7 +85,7 @@ async function handle(interaction) {
 
     const allOff = areAllStaffOffDuty();
     const notice = allOff
-      ? '\n💤 **Notice:** All staff members are currently off-duty. Night-mode notices will automatically be shown in new tickets.'
+      ? '\n💤 **Notice:** All staff members are currently off-duty. Off-duty notices will automatically be shown in new tickets.'
       : '';
 
     await interaction.reply({
@@ -113,7 +113,7 @@ async function handle(interaction) {
     });
 
     const allOff = areAllStaffOffDuty();
-    const footerText = allOff ? 'All staff are off-duty • Night-mode notices active in tickets' : 'Staff is active and taking orders';
+    const footerText = allOff ? 'All staff are off-duty • Off-duty notices active in tickets' : 'Staff is active and taking orders';
 
     const embed = new EmbedBuilder()
       .setColor(COLOR)
