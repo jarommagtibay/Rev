@@ -188,18 +188,39 @@ client.on(Events.MessageCreate, async (message) => {
   if (!hasImage) return;
 
   const entry = data.queue.find((e) => e.channelId === message.channel.id);
-  if (!entry) return;
 
   // Check if payment was already marked received
   try {
-    const mainMsg = await message.channel.messages.fetch({ message: entry.messageId, force: true });
-    const embed = mainMsg.embeds[0];
-    const isPaid = (embed && embed.fields ? embed.fields : []).some((f) => f.name === 'Payment');
+    let embed = null;
+    if (entry && entry.messageId) {
+      const mainMsg = await message.channel.messages.fetch({ message: entry.messageId, force: true }).catch(() => null);
+      if (mainMsg && mainMsg.embeds.length > 0) embed = mainMsg.embeds[0];
+    }
+    if (!embed) {
+      // Fallback: search recent messages for ticket embed
+      const msgs = await message.channel.messages.fetch({ limit: 10 }).catch(() => null);
+      if (msgs) {
+        const found = msgs.find(
+          (m) =>
+            m.embeds &&
+            m.embeds.length > 0 &&
+            (m.embeds[0].data?.fields || m.embeds[0].fields || []).some(
+              (f) => f.name === 'Queue Position' || f.name === 'Status'
+            )
+        );
+        if (found) embed = found.embeds[0];
+      }
+    }
+
+    const fields = embed ? (embed.data?.fields || embed.fields || []) : [];
+    const isPaid = fields.some((f) => f.name === 'Payment');
     if (isPaid) return; // already marked as received
 
-    // Prevent duplicate alerts in a short burst
-    if (entry._lastReceiptAlert && Date.now() - entry._lastReceiptAlert < 60000) return;
-    entry._lastReceiptAlert = Date.now();
+    // Prevent duplicate alerts in a short burst (30 seconds)
+    if (entry) {
+      if (entry._lastReceiptAlert && Date.now() - entry._lastReceiptAlert < 30000) return;
+      entry._lastReceiptAlert = Date.now();
+    }
 
     await message.channel.send({
       content:
@@ -207,7 +228,7 @@ client.on(Events.MessageCreate, async (message) => {
         `> Staff has been notified to verify your payment. Please wait a moment while we process your order!`,
     });
   } catch (err) {
-    // ignore fetch errors
+    console.error('Error detecting receipt screenshot:', err);
   }
 });
 
