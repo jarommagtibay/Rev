@@ -29,7 +29,10 @@ const commands = [
           o.setName('value').setDescription('Discount amount (e.g. 50 for ₱50, 10 for 10%)').setRequired(true).setMinValue(1)
         )
         .addIntegerOption((o) =>
-          o.setName('uses').setDescription('Maximum number of uses (optional, default unlimited)').setRequired(false).setMinValue(1)
+          o.setName('uses').setDescription('Maximum total uses (optional, default unlimited)').setRequired(false).setMinValue(1)
+        )
+        .addBooleanOption((o) =>
+          o.setName('public').setDescription('Allow anyone to use this code without staff giving it (default: false)').setRequired(false)
         )
     )
     .addSubcommand((sub) =>
@@ -74,16 +77,20 @@ async function handle(interaction) {
     const type = interaction.options.getString('type');
     const value = interaction.options.getNumber('value');
     const maxUses = interaction.options.getInteger('uses') || 0; // 0 = unlimited
+    const isPublic = interaction.options.getBoolean('public') || false;
 
     const existingIdx = data.promos.findIndex((p) => p.code === code);
+    const existing = existingIdx >= 0 ? data.promos[existingIdx] : null;
     const promoObj = {
       code,
       type,
       value,
       maxUses,
-      usedCount: 0,
+      usedCount: existing ? (existing.usedCount || 0) : 0,
       createdBy: interaction.user.username,
-      createdAt: Date.now(),
+      createdAt: existing ? existing.createdAt : Date.now(),
+      isPublic,
+      allowedUsers: existing ? (existing.allowedUsers || {}) : {},
     };
 
     if (existingIdx >= 0) {
@@ -95,9 +102,10 @@ async function handle(interaction) {
 
     const desc = type === 'fixed' ? `${formatPeso(value)} off` : `${value}% off`;
     const useText = maxUses > 0 ? `${maxUses} total uses` : 'Unlimited uses';
+    const accessText = isPublic ? '🌐 Public (anyone can use)' : '🔒 Gift-only (customers can only use if given via /promo give)';
 
     await interaction.reply({
-      content: `✅ Promo code **${code}** created! Value: **${desc}** (${useText}).`,
+      content: `✅ Promo code **${code}** created!\nValue: **${desc}** (${useText})\nAccess: **${accessText}**`,
       flags: EPHEMERAL,
     });
     return true;
@@ -136,7 +144,10 @@ async function handle(interaction) {
     const lines = data.promos.map((p, idx) => {
       const discount = p.type === 'fixed' ? `${formatPeso(p.value)} off` : `${p.value}% off`;
       const uses = p.maxUses > 0 ? `${p.usedCount}/${p.maxUses} uses` : `${p.usedCount} used (unlimited)`;
-      return `**${idx + 1}.** \`${p.code}\` — **${discount}** • ${uses} (by @${p.createdBy})`;
+      const mode = p.isPublic ? '🌐 Public' : '🔒 Gift-only';
+      const grantedCount = p.allowedUsers ? Object.keys(p.allowedUsers).length : 0;
+      const extra = p.isPublic ? '' : ` • ${grantedCount} customer(s) granted`;
+      return `**${idx + 1}.** \`${p.code}\` — **${discount}** • ${mode}${extra} • ${uses} (by @${p.createdBy})`;
     });
 
     const embed = new EmbedBuilder()
@@ -179,26 +190,31 @@ async function handle(interaction) {
       return true;
     }
 
+    // Grant 1 personal use to this specific customer
+    if (!promo.allowedUsers) promo.allowedUsers = {};
+    promo.allowedUsers[customerId] = (promo.allowedUsers[customerId] || 0) + 1;
+
     const desc = promo.type === 'fixed' ? `${formatPeso(promo.value)} off` : `${promo.value}% off`;
 
     // Save the promo on the queue entry so the closing DM can include it
     const entry = data.queue.find((e) => e.channelId === interaction.channel.id);
     if (entry) {
       entry.givenPromo = { code, desc };
-      saveData();
     }
+    saveData();
 
     // Post in the ticket so the customer sees it
     const promoEmbed = new EmbedBuilder()
       .setColor(COLOR)
-      .setTitle('🎁  You Got a Promo Code!')
+      .setTitle('🎁  You Got a Personal Promo Code!')
       .setDescription(
-        `Thank you for your order! Here is a promo code for your **next purchase**:\n\n` +
+        `Thank you for your order! Here is a 1-time promo code for your **next purchase**:\n\n` +
         `\`\`\`${code}\`\`\`\n` +
         `**Discount:** ${desc}\n` +
+        `🔒 **Exclusive to you:** This code is tied to your Discord account (<@${customerId}>) for **1-time use**. Nobody else can use it!\n\n` +
         `Enter this code in the **Promo Code** field when you place your next order on the Buy panel.`
       )
-      .setFooter({ text: 'Reveux Shop • Use it before it expires!' })
+      .setFooter({ text: 'Reveux Shop • 1-time personal discount' })
       .setTimestamp();
 
     await interaction.channel.send({
@@ -216,7 +232,7 @@ async function handle(interaction) {
     }
 
     await interaction.reply({
-      content: `✅ Promo code **${code}** (${desc}) sent to <@${customerId}> in this ticket and via DM.`,
+      content: `✅ Promo code **${code}** (${desc}) granted to <@${customerId}> (1-time personal use added).`,
       flags: EPHEMERAL,
     });
     return true;
@@ -226,14 +242,30 @@ async function handle(interaction) {
 }
 
 // Helper to validate and calculate discount on an amount
-function applyPromoDiscount(codeStr, originalPrice) {
+function applyPromoDiscount(codeStr, originalPrice, userId) {
   if (!codeStr || !Array.isArray(data.promos)) return { price: originalPrice, discount: 0, promo: null };
   const cleanCode = codeStr.trim().toUpperCase();
   const promo = data.promos.find((p) => p.code === cleanCode);
   if (!promo) return { price: originalPrice, discount: 0, promo: null, error: 'Invalid promo code.' };
 
   if (promo.maxUses > 0 && promo.usedCount >= promo.maxUses) {
-    return { price: originalPrice, discount: 0, promo: null, error: 'This promo code has reached its maximum uses.' };
+    return { price: originalPrice, discount: 0, promo: null, error: 'This promo code has reached its maximum total uses.' };
+  }
+
+  // Check if promo is restricted to users who were given the code
+  if (!promo.isPublic) {
+    if (!userId) {
+      return { price: originalPrice, discount: 0, promo: null, error: 'Customer account could not be verified for this promo.' };
+    }
+    const remaining = (promo.allowedUsers && promo.allowedUsers[userId]) || 0;
+    if (remaining <= 0) {
+      return {
+        price: originalPrice,
+        discount: 0,
+        promo: null,
+        error: 'This promo code is personal and was not granted to your account (or you have already used your 1-time discount).',
+      };
+    }
   }
 
   let discount = 0;

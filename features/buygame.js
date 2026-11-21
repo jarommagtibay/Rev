@@ -22,6 +22,7 @@ const {
 } = require('../core/ticket');
 const { refreshQueue } = require('../core/queue');
 const { logTicketCreated } = require('../core/audit');
+const { applyPromoDiscount } = require('./promo');
 
 const commands = [];
 
@@ -98,6 +99,15 @@ async function showForm(interaction) {
     modal.addComponents(new ActionRowBuilder().addComponents(input));
   }
 
+  const promoInput = new TextInputBuilder()
+    .setCustomId('game_promo')
+    .setLabel('Promo Code (optional)')
+    .setPlaceholder('Enter discount code if you have one')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(20);
+  modal.addComponents(new ActionRowBuilder().addComponents(promoInput));
+
   return interaction.showModal(modal);
 }
 
@@ -132,6 +142,32 @@ async function createTicket(interaction) {
   const nameField = game.fields.find((f) => f.isName);
   const name = nameField ? values[nameField.id] : interaction.user.username;
 
+  // Optional promo discount
+  let promoCode = '';
+  try {
+    promoCode = interaction.fields.getTextInputValue('game_promo').trim();
+  } catch {
+    promoCode = '';
+  }
+
+  let price = pkg.price;
+  let promoNote = '';
+  if (promoCode) {
+    const res = applyPromoDiscount(promoCode, pkg.price, interaction.user.id);
+    if (res.error) {
+      return interaction.reply({ content: `⚠️ Promo Code Error: ${res.error}`, flags: EPHEMERAL });
+    }
+    price = res.price;
+    if (res.promo) {
+      if (res.promo.allowedUsers && res.promo.allowedUsers[interaction.user.id] > 0) {
+        res.promo.allowedUsers[interaction.user.id] -= 1;
+      }
+      res.promo.usedCount = (res.promo.usedCount || 0) + 1;
+      saveData();
+      promoNote = ` (Discounted from ${formatPeso(pkg.price)} via \`${res.promo.code}\`)`;
+    }
+  }
+
   await interaction.deferReply({ flags: EPHEMERAL });
 
   const safeName = makeSafeName(interaction.user);
@@ -145,12 +181,12 @@ async function createTicket(interaction) {
     .setAuthor({ name: 'REVÉUX  •  ORDER TICKET' })
     .setTitle(`🧾  New ${game.name} Order`)
     .setColor(COLOR)
-    .setDescription(orderHeadline(`${pkg.label}  •  ${game.name}`, formatPeso(pkg.price), '🎮'))
+    .setDescription(orderHeadline(`${pkg.label}  •  ${game.name}`, formatPeso(price) + promoNote, '🎮'))
     .setThumbnail(interaction.user.displayAvatarURL())
     .addFields(
       { name: 'Game', value: game.name, inline: true },
       { name: 'Package', value: pkg.label, inline: true },
-      { name: 'Price', value: formatPeso(pkg.price), inline: true },
+      { name: 'Price', value: formatPeso(price) + promoNote, inline: true },
       { name: 'Queue Position', value: `#${position}`, inline: true },
       ...game.fields.map((f) => ({ name: f.label, value: `\`\`\`\n${values[f.id]}\n\`\`\``, inline: true })),
       { name: 'Opened by', value: `${interaction.user}` }
@@ -165,7 +201,7 @@ async function createTicket(interaction) {
     allowedMentions: { parse: ['users', 'roles'] },
   });
 
-  await sendPaymentMessage(channel, formatPeso(pkg.price), `${pkg.label} (${game.name})`);
+  await sendPaymentMessage(channel, formatPeso(price), `${pkg.label} (${game.name})`);
 
   const entry = {
     channelId: channel.id,
@@ -178,7 +214,7 @@ async function createTicket(interaction) {
     game: key,
     gameName: game.name,
     label: pkg.label,
-    price: pkg.price,
+    price,
     amount: 0,
     joinedAt: Date.now(),
     notifiedNext: false,

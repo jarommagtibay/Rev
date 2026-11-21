@@ -174,12 +174,15 @@ async function createTicket(interaction) {
   let price = basePrice;
   let promoNote = '';
   if (promoCode) {
-    const res = applyPromoDiscount(promoCode, basePrice);
+    const res = applyPromoDiscount(promoCode, basePrice, interaction.user.id);
     if (res.error) {
       return interaction.reply({ content: `⚠️ Promo Code Error: ${res.error}`, flags: EPHEMERAL });
     }
     price = res.price;
     if (res.promo) {
+      if (res.promo.allowedUsers && res.promo.allowedUsers[interaction.user.id] > 0) {
+        res.promo.allowedUsers[interaction.user.id] -= 1;
+      }
       res.promo.usedCount = (res.promo.usedCount || 0) + 1;
       saveData();
       promoNote = ` (Discounted from ${formatPeso(basePrice)} via \`${res.promo.code}\`)`;
