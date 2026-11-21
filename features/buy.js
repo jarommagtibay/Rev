@@ -8,7 +8,7 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require('discord.js');
-const { CURRENCY, COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT } = require('../config');
+const { CURRENCY, COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT, EXPRESS_FEE } = require('../config');
 const { data, saveData, formatPeso, robuxPrice, isBlacklisted } = require('../core/data');
 const { EPHEMERAL, parseOrderAmount, ticketLimitMessage } = require('../core/helpers');
 const {
@@ -22,6 +22,7 @@ const { refreshQueue, availableStock, notEnoughStockMessage } = require('../core
 const { logTicketCreated } = require('../core/audit');
 const { applyPromoDiscount } = require('./promo');
 const { getRobloxProfile } = require('../core/roblox');
+const { areAllStaffOffDuty, getOffDutyNote } = require('./duty');
 
 const commands = [];
 
@@ -132,11 +133,20 @@ async function showForm(interaction) {
     .setRequired(false)
     .setMaxLength(20);
 
+  const expressInput = new TextInputBuilder()
+    .setCustomId('express_delivery')
+    .setLabel(`⚡ Express Queue (+${CURRENCY}${EXPRESS_FEE})? Type YES`)
+    .setPlaceholder('Type YES to skip the line, or leave blank')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(5);
+
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),
     new ActionRowBuilder().addComponents(usernameInput),
     new ActionRowBuilder().addComponents(valueInput),
-    new ActionRowBuilder().addComponents(promoInput)
+    new ActionRowBuilder().addComponents(promoInput),
+    new ActionRowBuilder().addComponents(expressInput)
   );
 
   return interaction.showModal(modal);
@@ -154,6 +164,8 @@ async function createTicket(interaction) {
   const username = interaction.fields.getTextInputValue('account_username').trim();
   const value = interaction.fields.getTextInputValue('amount_value');
   const promoCode = (interaction.fields.getTextInputValue('promo_code') || '').trim();
+  const expressVal = (interaction.fields.getTextInputValue('express_delivery') || '').trim().toUpperCase();
+  const isExpress = expressVal === 'YES' || expressVal === 'Y';
 
   const limitMessage = ticketLimitMessage(interaction.guild, interaction.user.id, 'robux', 'Robux');
   if (limitMessage) {
@@ -190,6 +202,13 @@ async function createTicket(interaction) {
     }
   }
 
+  // Add express fee if selected
+  let expressNote = '';
+  if (isExpress) {
+    price += EXPRESS_FEE;
+    expressNote = ` (+${CURRENCY}${EXPRESS_FEE} Express)`;
+  }
+
   const available = availableStock();
   if (amount > available) {
     return interaction.reply({ content: notEnoughStockMessage(available), flags: EPHEMERAL });
@@ -217,12 +236,20 @@ async function createTicket(interaction) {
       { name: 'Account Name', value: `\`\`\`\n${name}\n\`\`\``, inline: true },
       { name: 'Account Username', value: `\`\`\`\n${username}\n\`\`\``, inline: true },
       { name: 'Robux Amount', value: amount.toLocaleString(), inline: true },
-      { name: 'Price', value: `${formatPeso(price)}${promoNote}`, inline: true },
-      { name: 'Queue Position', value: `#${position}`, inline: true },
+      { name: 'Price', value: `${formatPeso(price)}${promoNote}${expressNote}`, inline: true },
+      { name: 'Queue Position', value: isExpress ? `#1 ⚡ EXPRESS` : `#${position}`, inline: true },
       { name: 'Opened by', value: `${interaction.user}` }
     )
     .setFooter({ text: `Rate: ${CURRENCY}${data.rate} per 100 Robux` })
     .setTimestamp();
+
+  if (isExpress) {
+    embed.addFields({
+      name: '⚡  Priority Level',
+      value: `**VIP EXPRESS QUEUE (+${CURRENCY}${EXPRESS_FEE})** — Prioritized at the front of the line!`,
+      inline: false,
+    });
+  }
 
   if (roblox && !roblox.notFound) {
     embed.addFields({
@@ -238,8 +265,12 @@ async function createTicket(interaction) {
     });
   }
 
+  const staffAlert = isExpress
+    ? `<@&${STAFF_ROLE_ID}> ⚡ **VIP EXPRESS ORDER** (prioritize immediately!)`
+    : `<@&${STAFF_ROLE_ID}>`;
+
   const message = await channel.send({
-    content: `${interaction.user} <@&${STAFF_ROLE_ID}>`,
+    content: `${interaction.user} ${staffAlert}`,
     embeds: [embed],
     components: ticketRows('open', false),
     allowedMentions: { parse: ['users', 'roles'] },
@@ -266,15 +297,44 @@ async function createTicket(interaction) {
     price,
     joinedAt: Date.now(),
     notifiedNext: false,
-    shownPosition: `#${position}`,
+    shownPosition: isExpress ? `#1 ⚡ EXPRESS` : `#${position}`,
+    isExpress,
   };
-  data.queue.push(entry);
+
+  // Express orders are placed at the front of the active queue
+  if (isExpress) {
+    const insertIdx = data.queue.findIndex((e) => !e.isExpress);
+    if (insertIdx === -1) data.queue.push(entry);
+    else data.queue.splice(insertIdx, 0, entry);
+  } else {
+    data.queue.push(entry);
+  }
   saveData();
+
+  // If all staff are currently off-duty, display night-time notice
+  if (areAllStaffOffDuty()) {
+    const note = getOffDutyNote();
+    const noteLine = note ? `\n\n**Staff Notes:**\n${note}` : '';
+    await channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0x2b2d31)
+          .setTitle('🌙  Night-Time Notice: Staff Is Currently Off-Duty')
+          .setDescription(
+            'Our staff team is currently resting / off-duty for the night.\n\n' +
+            '✅ **Your order is saved in the queue:** Please go ahead and send your payment receipt.\n' +
+            `🌅 **Morning Fulfillment:** Orders will be fulfilled first thing in the morning when staff returns online!${noteLine}`
+          )
+          .setFooter({ text: 'Reveux Shop • Orders are fulfilled in queue order' })
+          .setTimestamp(),
+      ],
+    });
+  }
 
   // Record who opened the ticket in the audit channel (not awaited, never blocks the customer)
   logTicketCreated(interaction, {
     channel,
-    item: `${amount.toLocaleString()} Robux`,
+    item: `${amount.toLocaleString()} Robux${isExpress ? ' (⚡ Express)' : ''}`,
     price: formatPeso(price),
     details: [
       { name: 'Account Name', value: name },
@@ -291,8 +351,9 @@ async function createTicket(interaction) {
   // Greet them with their position (and ping them if they're first)
   await refreshQueue(interaction.guild);
 
+  const posText = isExpress ? '**#1 ⚡ EXPRESS**' : `**#${position}**`;
   return interaction.editReply(
-    `Your ticket has been created: ${channel}\nYour position in the queue: **#${position}**`
+    `Your ticket has been created: ${channel}\nYour position in the queue: ${posText}`
   );
 }
 

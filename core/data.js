@@ -26,6 +26,7 @@ function loadData() {
       promos: Array.isArray(d.promos) ? d.promos : [],
       completionTimes: Array.isArray(d.completionTimes) ? d.completionTimes : [],
       receiptHashes: Array.isArray(d.receiptHashes) ? d.receiptHashes : [],
+      staffDuty: d.staffDuty && typeof d.staffDuty === 'object' ? d.staffDuty : {},
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -54,6 +55,7 @@ function loadData() {
       promos: [],
       completionTimes: [],
       receiptHashes: [],
+      staffDuty: {},
     };
   }
 }

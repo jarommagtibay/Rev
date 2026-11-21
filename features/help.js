@@ -90,6 +90,7 @@ function buildStaffHelpEmbed() {
       {
         name: '🛡️  Staff Tools & Moderation',
         value:
+          '• `/duty <on|off|status> [note]` — Toggle staff on/off duty status (shows night notice if all staff off-duty)\n' +
           '• `/staffstats` — Show leaderboard of processed, sent and completed orders per staff member\n' +
           '• `/report [today|week|all]` — Generate total revenue and sales volume report\n' +
           '• `/promo <create|delete|list|give>` — Create, manage, or give promo codes to customers in tickets\n' +

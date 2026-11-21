@@ -46,17 +46,28 @@ async function syncTicket(guild, entry, positionText, nameFor) {
 
 async function refreshQueueNow(guild) {
   let needsSave = false;
+
+  // Sort queue: Express orders first, then regular orders
+  data.queue.sort((a, b) => {
+    if (a.isExpress && !b.isExpress) return -1;
+    if (!a.isExpress && b.isExpress) return 1;
+    return 0;
+  });
+
   const activeQueue = data.queue.filter((e) => !e.onHold);
 
-  // Active queue: calculate #1, #2, #3...
+  // Active queue: calculate #1, #2, #3... (express orders marked with ⚡ EXPRESS)
   for (let i = 0; i < activeQueue.length; i++) {
     const entry = activeQueue[i];
+    const isExp = Boolean(entry.isExpress);
+    const posText = isExp ? `#${i + 1} ⚡ EXPRESS` : `#${i + 1}`;
+    const namePrefix = isExp ? `express-${i + 1}` : `queue-${i + 1}`;
     try {
       const { channel, changed } = await syncTicket(
         guild,
         entry,
-        `#${i + 1}`,
-        (ch) => `queue-${i + 1}-${entry.safeName || baseName(ch.name)}`
+        posText,
+        (ch) => `${namePrefix}-${entry.safeName || baseName(ch.name)}`
       );
       if (changed) needsSave = true;
 
