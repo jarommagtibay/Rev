@@ -2,9 +2,10 @@
 // To add a new feature: create a new file in /features that exports { commands, handle }.
 const fs = require('fs');
 const path = require('path');
-const { Events, REST, Routes } = require('discord.js');
+const crypto = require('crypto');
+const { Events, REST, Routes, EmbedBuilder } = require('discord.js');
 
-const { TOKEN, CLIENT_ID, GUILD_ID, STAFF_ROLE_ID } = require('./config');
+const { TOKEN, CLIENT_ID, GUILD_ID, STAFF_ROLE_ID, AUDIT_CHANNEL_ID } = require('./config');
 const client = require('./core/client');
 const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
@@ -216,17 +217,100 @@ client.on(Events.MessageCreate, async (message) => {
     const isPaid = fields.some((f) => f.name === 'Payment');
     if (isPaid) return; // already marked as received
 
-    // Prevent duplicate alerts in a short burst (30 seconds)
-    if (entry) {
-      if (entry._lastReceiptAlert && Date.now() - entry._lastReceiptAlert < 30000) return;
-      entry._lastReceiptAlert = Date.now();
+    // Duplicate Receipt Fraud Detection
+    const imgAttachment = message.attachments.find(
+      (a) =>
+        (a.contentType && a.contentType.startsWith('image/')) ||
+        /\.(png|jpe?g|webp)$/i.test(a.name || '')
+    );
+
+    let isDuplicate = false;
+    if (imgAttachment && imgAttachment.url) {
+      try {
+        const imgRes = await fetch(imgAttachment.url).catch(() => null);
+        if (imgRes && imgRes.ok) {
+          const buf = Buffer.from(await imgRes.arrayBuffer());
+          const imgHash = crypto.createHash('sha256').update(buf).digest('hex');
+
+          if (!Array.isArray(data.receiptHashes)) data.receiptHashes = [];
+          const previous = data.receiptHashes.find(
+            (r) => r.hash === imgHash && r.channelId !== message.channel.id
+          );
+
+          if (previous) {
+            isDuplicate = true;
+            // 1. Post urgent fraud alert in staff audit channel
+            if (AUDIT_CHANNEL_ID) {
+              const auditChan = await client.channels.fetch(AUDIT_CHANNEL_ID).catch(() => null);
+              if (auditChan) {
+                await auditChan.send({
+                  content: `<@&${STAFF_ROLE_ID}> 🚨 **DUPLICATE RECEIPT FRAUD ALERT!**`,
+                  embeds: [
+                    new EmbedBuilder()
+                      .setColor(0xff0000)
+                      .setTitle('🚨 FRAUD WARNING: Reused Payment Receipt!')
+                      .setDescription(
+                        `A receipt screenshot that was **previously uploaded in another ticket** was just posted!\n\n` +
+                        `• **Current Ticket:** <#${message.channel.id}>\n` +
+                        `• **Current User:** <@${message.author.id}> (@${message.author.username})\n` +
+                        `• **Previously Used In:** #${previous.channelName || previous.channelId}\n` +
+                        `• **Previously Uploaded By:** <@${previous.userId}> (@${previous.username})\n` +
+                        `• **Original Upload Date:** <t:${Math.floor(previous.timestamp / 1000)}:R>\n\n` +
+                        `⚠️ **Action Required:** Do NOT process this order until staff manually verifies genuine transaction history in GCash.`
+                      )
+                      .setTimestamp(),
+                  ],
+                });
+              }
+            }
+
+            // 2. Post alert inside the ticket channel
+            await message.channel.send({
+              embeds: [
+                new EmbedBuilder()
+                  .setColor(0xff0000)
+                  .setTitle('⚠️  Security Warning: Duplicate Receipt Detected')
+                  .setDescription(
+                    'This receipt screenshot matches an image that was **previously uploaded in another ticket**.\n' +
+                    'Staff has been notified and will perform a manual payment verification before proceeding.'
+                  )
+                  .setTimestamp(),
+              ],
+            });
+          } else {
+            // Save hash
+            data.receiptHashes.push({
+              hash: imgHash,
+              channelId: message.channel.id,
+              channelName: message.channel.name,
+              userId: message.author.id,
+              username: message.author.username,
+              timestamp: Date.now(),
+            });
+            if (data.receiptHashes.length > 5000) {
+              data.receiptHashes = data.receiptHashes.slice(-5000);
+            }
+            saveData();
+          }
+        }
+      } catch (hashErr) {
+        console.error('Error calculating receipt hash:', hashErr);
+      }
     }
 
-    await message.channel.send({
-      content:
-        `🧾 **Receipt screenshot detected!**\n` +
-        `> Staff has been notified to verify your payment. Please wait a moment while we process your order!`,
-    });
+    if (!isDuplicate) {
+      // Prevent duplicate normal alerts in a short burst (30 seconds)
+      if (entry) {
+        if (entry._lastReceiptAlert && Date.now() - entry._lastReceiptAlert < 30000) return;
+        entry._lastReceiptAlert = Date.now();
+      }
+
+      await message.channel.send({
+        content:
+          `🧾 **Receipt screenshot detected!**\n` +
+          `> Staff has been notified to verify your payment. Please wait a moment while we process your order!`,
+      });
+    }
   } catch (err) {
     console.error('Error detecting receipt screenshot:', err);
   }

@@ -25,6 +25,7 @@ function loadData() {
       ordersLog: Array.isArray(d.ordersLog) ? d.ordersLog : [],
       promos: Array.isArray(d.promos) ? d.promos : [],
       completionTimes: Array.isArray(d.completionTimes) ? d.completionTimes : [],
+      receiptHashes: Array.isArray(d.receiptHashes) ? d.receiptHashes : [],
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -52,6 +53,7 @@ function loadData() {
       ordersLog: [],
       promos: [],
       completionTimes: [],
+      receiptHashes: [],
     };
   }
 }

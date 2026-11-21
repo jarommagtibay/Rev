@@ -21,6 +21,7 @@ const {
 const { refreshQueue, availableStock, notEnoughStockMessage } = require('../core/queue');
 const { logTicketCreated } = require('../core/audit');
 const { applyPromoDiscount } = require('./promo');
+const { getRobloxProfile } = require('../core/roblox');
 
 const commands = [];
 
@@ -196,6 +197,9 @@ async function createTicket(interaction) {
 
   await interaction.deferReply({ flags: EPHEMERAL });
 
+  // Lookup Roblox avatar and profile in background (non-blocking if API error)
+  const roblox = await getRobloxProfile(username);
+
   const safeName = makeSafeName(interaction.user);
 
   // Position is decided before the channel is created so the name can include it
@@ -208,7 +212,7 @@ async function createTicket(interaction) {
     .setTitle('🧾  New Robux Order')
     .setColor(COLOR)
     .setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPeso(price)))
-    .setThumbnail(interaction.user.displayAvatarURL())
+    .setThumbnail(roblox?.avatarUrl || interaction.user.displayAvatarURL())
     .addFields(
       { name: 'Account Name', value: `\`\`\`\n${name}\n\`\`\``, inline: true },
       { name: 'Account Username', value: `\`\`\`\n${username}\n\`\`\``, inline: true },
@@ -219,6 +223,20 @@ async function createTicket(interaction) {
     )
     .setFooter({ text: `Rate: ${CURRENCY}${data.rate} per 100 Robux` })
     .setTimestamp();
+
+  if (roblox && !roblox.notFound) {
+    embed.addFields({
+      name: '👤  Roblox Profile',
+      value: `[**${roblox.displayName}** (@${roblox.name})](${roblox.profileUrl})\n*(Avatar verified above)*`,
+      inline: false,
+    });
+  } else if (roblox && roblox.notFound) {
+    embed.addFields({
+      name: '⚠️  Roblox Warning',
+      value: `No account named \`${username}\` found on Roblox! Please verify spelling before sending.`,
+      inline: false,
+    });
+  }
 
   const message = await channel.send({
     content: `${interaction.user} <@&${STAFF_ROLE_ID}>`,
