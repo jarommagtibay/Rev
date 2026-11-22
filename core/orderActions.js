@@ -164,6 +164,7 @@ async function markSentUnlocked(message, channel, guild, user, proof) {
       recordCompletionDuration(durationMins);
     }
     recordCompletedOrder({
+      orderId: entry.orderId,
       channelId: channel.id,
       userId: entry.userId,
       type: entry.type || 'robux',

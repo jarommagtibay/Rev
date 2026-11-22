@@ -11,7 +11,7 @@ const {
 } = require('discord.js');
 const { COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT, CURRENCY, EXPRESS_FEE } = require('../config');
 const { GAMES } = require('../catalog');
-const { data, saveData, formatPeso, isBlacklisted } = require('../core/data');
+const { data, saveData, formatPeso, isBlacklisted, generateOrderId } = require('../core/data');
 const { EPHEMERAL, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
@@ -196,6 +196,7 @@ async function createTicket(interaction) {
   await interaction.deferReply({ flags: EPHEMERAL });
 
   const safeName = makeSafeName(interaction.user);
+  const orderId = generateOrderId();
 
   // Position is decided before the channel is created so the name can include it
   const position = data.queue.length + 1;
@@ -209,6 +210,7 @@ async function createTicket(interaction) {
     .setDescription(orderHeadline(`${pkg.label}  •  ${game.name}`, formatPeso(price) + promoNote + expressNote, '🎮'))
     .setThumbnail(interaction.user.displayAvatarURL())
     .addFields(
+      { name: 'Order ID', value: `\`#${orderId}\``, inline: true },
       { name: 'Game', value: game.name, inline: true },
       { name: 'Package', value: pkg.label, inline: true },
       { name: 'Price', value: formatPeso(price) + promoNote + expressNote, inline: true },
@@ -216,6 +218,7 @@ async function createTicket(interaction) {
       ...game.fields.map((f) => ({ name: f.label, value: `\`\`\`\n${values[f.id]}\n\`\`\``, inline: true })),
       { name: 'Opened by', value: `${interaction.user}` }
     )
+    .setFooter({ text: `Order #${orderId}${game.note ? ` • ${game.note}` : ''}` })
     .setTimestamp();
 
   if (isExpress) {
@@ -242,6 +245,7 @@ async function createTicket(interaction) {
   await sendPaymentMessage(channel, formatPeso(price), `${pkg.label} (${game.name})`);
 
   const entry = {
+    orderId,
     channelId: channel.id,
     messageId: message.id,
     userId: interaction.user.id,

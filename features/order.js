@@ -11,6 +11,7 @@ const {
 const { CURRENCY, COLOR } = require('../config');
 const M = require('../messages');
 const { GAMES } = require('../catalog');
+const { generateReceiptCard } = require('../core/receiptCard');
 const { data, saveData, formatPeso, robuxPrice, orderPriceText, recordStaffAction, recordCompletedOrder } = require('../core/data');
 const {
   EPHEMERAL,
@@ -493,6 +494,39 @@ async function completeOrder(interaction) {
     .catch(() => { });
 
   const customerId = getCustomerId(interaction.channel);
+
+  // Send Sleek Digital Graphic Receipt Card in the ticket channel
+  try {
+    const fields = embed.data ? embed.data.fields || [] : embed.fields || [];
+    const getField = (name) => (fields.find((f) => f.name === name) || {}).value || '';
+    const clean = (val) => val.replace(/```\n?/g, '').trim();
+    const orderIdVal = getField('Order ID').replace(/[`#]/g, '').trim();
+    const accountVal = clean(getField('Account Username') || getField('Account Name') || getField('Player ID') || getField('User ID') || getField('UID') || '-');
+    const priceVal = getField('Price').split('\n')[0].trim();
+    const customer = customerId ? await interaction.guild.members.fetch(customerId).catch(() => null) : null;
+
+    const receiptResult = await generateReceiptCard({
+      orderId: (entry && entry.orderId) || orderIdVal || 'REV-XXXX',
+      customerName: customer ? customer.user.username : (entry && entry.username) || 'Customer',
+      customerId: customerId || '',
+      customerAvatar: customer ? customer.user.displayAvatarURL({ extension: 'png', size: 128 }) : undefined,
+      productName: isRobuxOrder(embed) ? `${amount.toLocaleString()} Robux` : (entry && entry.label) || 'Gaming Top-Up',
+      priceText: priceVal || formatPeso((entry && entry.price) || 0),
+      accountInfo: accountVal,
+      gameName: isRobuxOrder(embed) ? 'Roblox' : (entry && entry.gameName) || 'Mobile Games',
+      staffName: interaction.user.username,
+      timestamp: Date.now(),
+    });
+
+    if (receiptResult && receiptResult.embed) {
+      const msgOpts = { embeds: [receiptResult.embed] };
+      if (receiptResult.attachment) msgOpts.files = [receiptResult.attachment];
+      await interaction.channel.send(msgOpts);
+    }
+  } catch (err) {
+    console.error('Could not send graphic receipt in ticket:', err);
+  }
+
   await interaction.channel.send(
     ticketMessage('thanks', {
       userId: customerId,

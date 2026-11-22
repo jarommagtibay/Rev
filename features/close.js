@@ -6,6 +6,7 @@ const M = require('../messages');
 const { data, formatPeso, orderPriceText } = require('../core/data');
 const { EPHEMERAL, isStaff, fromTemplate, getCustomerId } = require('../core/helpers');
 const { logTicketTranscript } = require('../core/audit');
+const { generateReceiptCard } = require('../core/receiptCard');
 
 const commands = [
   new SlashCommandBuilder()
@@ -46,19 +47,44 @@ async function sendCustomerDmReceipt(channel, closedByUser) {
       promoLine = `\n\n🎁 **Your Promo Code for Next Order:**\n\`\`\`${entry.givenPromo.code}\`\`\`**Discount:** ${entry.givenPromo.desc}\nEnter this code in the **Promo Code** field when you place your next order!`;
     }
 
+    const orderId = (entry && entry.orderId) || 'REV-XXXX';
+
     const dmEmbed = new EmbedBuilder()
       .setColor(COLOR)
-      .setTitle('🛍️  Revéux Shop — Order Completed')
+      .setTitle(`🛍️  Revéux Shop — Order #${orderId} Completed`)
       .setDescription(
         `Hello ${customer}! Your ticket **#${channel.name}** has been closed.\n\n` +
+        `**Order ID:** \`#${orderId}\`\n` +
         `${orderLine}\n\n` +
         '⭐ If you enjoyed our service, don\'t forget to leave a vouch in the server. Thank you for your support!' +
         promoLine
       )
-      .setFooter({ text: `Handled by @${closedByUser.username} • Reveux Shop` })
+      .setFooter({ text: `Order #${orderId} • Handled by @${closedByUser.username} • Reveux Shop` })
       .setTimestamp();
 
-    await customer.send({ embeds: [dmEmbed] }).catch(() => {
+    let files = [];
+    try {
+      const receiptResult = await generateReceiptCard({
+        orderId,
+        customerName: customer.username,
+        customerId: customer.id,
+        customerAvatar: customer.displayAvatarURL({ extension: 'png', size: 128 }),
+        productName: entry ? (entry.type === 'game' ? `${entry.label} (${entry.gameName})` : `${entry.amount.toLocaleString()} Robux`) : 'Gaming Top-Up',
+        priceText: entry ? (entry.type === 'game' ? formatPeso(entry.price) : orderPriceText(entry)) : '₱0.00',
+        accountInfo: entry ? (entry.name || entry.username || '-') : '-',
+        gameName: entry ? (entry.gameName || 'Roblox') : 'Roblox',
+        staffName: closedByUser.username,
+        timestamp: Date.now(),
+      });
+      if (receiptResult && receiptResult.attachment) {
+        files = [receiptResult.attachment];
+        dmEmbed.setImage(`attachment://${receiptResult.attachment.name}`);
+      }
+    } catch (cardErr) {
+      console.warn('Could not generate receipt image for customer DM:', cardErr);
+    }
+
+    await customer.send({ embeds: [dmEmbed], files }).catch(() => {
       // DMs closed or blocked, ignore safely
     });
   } catch (err) {

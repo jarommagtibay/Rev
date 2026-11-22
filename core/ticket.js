@@ -167,8 +167,13 @@ async function postReceipt(embed, ticketChannel) {
       ];
     }
 
+    const orderId = get('Order ID');
+    if (orderId && orderId !== '-') {
+      fields.unshift({ name: 'Order ID', value: orderId, inline: true });
+    }
+
     const receipt = new EmbedBuilder()
-      .setTitle('Order Receipt')
+      .setTitle(`🧾  Order Receipt ${orderId && orderId !== '-' ? orderId : ''}`.trim())
       .setColor(COLOR)
       .addFields(fields)
       .setTimestamp();

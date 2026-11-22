@@ -9,7 +9,7 @@ const {
   TextInputStyle,
 } = require('discord.js');
 const { CURRENCY, COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT, EXPRESS_FEE } = require('../config');
-const { data, saveData, formatPeso, robuxPrice, isBlacklisted } = require('../core/data');
+const { data, saveData, formatPeso, robuxPrice, isBlacklisted, generateOrderId } = require('../core/data');
 const { EPHEMERAL, parseOrderAmount, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
@@ -220,6 +220,7 @@ async function createTicket(interaction) {
   const roblox = await getRobloxProfile(username);
 
   const safeName = makeSafeName(interaction.user);
+  const orderId = generateOrderId();
 
   // Position is decided before the channel is created so the name can include it
   const position = data.queue.length + 1;
@@ -233,6 +234,7 @@ async function createTicket(interaction) {
     .setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPeso(price)))
     .setThumbnail(roblox?.avatarUrl || interaction.user.displayAvatarURL())
     .addFields(
+      { name: 'Order ID', value: `\`#${orderId}\``, inline: true },
       { name: 'Account Name', value: `\`\`\`\n${name}\n\`\`\``, inline: true },
       { name: 'Account Username', value: `\`\`\`\n${username}\n\`\`\``, inline: true },
       { name: 'Robux Amount', value: amount.toLocaleString(), inline: true },
@@ -240,7 +242,7 @@ async function createTicket(interaction) {
       { name: 'Queue Position', value: isExpress ? `#1 ⚡ EXPRESS` : `#${position}`, inline: true },
       { name: 'Opened by', value: `${interaction.user}` }
     )
-    .setFooter({ text: `Rate: ${CURRENCY}${data.rate} per 100 Robux` })
+    .setFooter({ text: `Order #${orderId} • Rate: ${CURRENCY}${data.rate} per 100 Robux` })
     .setTimestamp();
 
   if (isExpress) {
@@ -287,6 +289,7 @@ async function createTicket(interaction) {
   }
 
   const entry = {
+    orderId,
     channelId: channel.id,
     messageId: message.id,
     userId: interaction.user.id,

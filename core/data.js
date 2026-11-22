@@ -27,6 +27,7 @@ function loadData() {
       completionTimes: Array.isArray(d.completionTimes) ? d.completionTimes : [],
       receiptHashes: Array.isArray(d.receiptHashes) ? d.receiptHashes : [],
       staffDuty: d.staffDuty && typeof d.staffDuty === 'object' ? d.staffDuty : {},
+      orderCounter: typeof d.orderCounter === 'number' ? d.orderCounter : 1000,
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -56,6 +57,7 @@ function loadData() {
       completionTimes: [],
       receiptHashes: [],
       staffDuty: {},
+      orderCounter: 1000,
     };
   }
 }
@@ -142,12 +144,21 @@ function recordStaffAction(userId, username, actionType) {
   saveData();
 }
 
+// Generates a clean, professional, sequential Order ID like REV-1001
+function generateOrderId() {
+  data.orderCounter = (data.orderCounter || 1000) + 1;
+  saveData();
+  return `REV-${data.orderCounter}`;
+}
+
 // Records an order completion into the historical log
 function recordCompletedOrder(order) {
   if (!Array.isArray(data.ordersLog)) data.ordersLog = [];
+  const orderId = order.orderId || generateOrderId();
   data.ordersLog.push({
     id: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     ...order,
+    orderId,
     completedAt: Date.now(),
   });
   // Keep the most recent 10,000 orders
@@ -155,6 +166,7 @@ function recordCompletedOrder(order) {
     data.ordersLog = data.ordersLog.slice(-10000);
   }
   saveData();
+  return orderId;
 }
 
 // Records completion duration in minutes for rolling ETA estimation
@@ -194,4 +206,5 @@ module.exports = {
   getAverageETA,
   isBlacklisted,
   syncStaffStats,
+  generateOrderId,
 };

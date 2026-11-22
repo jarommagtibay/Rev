@@ -51,7 +51,8 @@ async function handle(interaction) {
     const recent = userPast.slice(-5).reverse();
     const orderLines = recent.map((o, idx) => {
       const dateStr = o.completedAt ? `<t:${Math.floor(o.completedAt / 1000)}:R>` : 'Recently';
-      return `**${idx + 1}.** ${o.label || `${o.amount} Robux`} — **${formatPeso(o.price)}** (${dateStr})`;
+      const orderIdBadge = o.orderId ? `\`#${o.orderId}\` • ` : '';
+      return `**${idx + 1}.** ${orderIdBadge}${o.label || `${o.amount} Robux`} — **${formatPeso(o.price)}** (${dateStr})`;
     });
 
     embed.addFields({
