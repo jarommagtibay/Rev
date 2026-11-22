@@ -224,11 +224,17 @@ function formatText(content) {
 // Discord picture links stop working after a while, and the ticket channel is deleted when it is
 // closed. So the pictures people sent (payment receipts, delivery proof) are downloaded now and put
 // INSIDE the transcript file. Sticker and QR pictures are skipped (same pictures in every ticket).
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // one picture
-const MAX_TOTAL_IMAGE_BYTES = 5 * 1024 * 1024; // all pictures together (keeps the file under Discord's upload limit)
-const DOWNLOAD_TIMEOUT = 8000;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // up to 8MB per picture (handles high-res phone screenshots)
+const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024; // up to 20MB total (well within Discord 25MB bot upload limit)
+const DOWNLOAD_TIMEOUT = 12000;
 // Only Discord's own servers are downloaded from. A link a customer pasted is never fetched.
-const DISCORD_CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
+const DISCORD_CDN_HOSTS = new Set([
+  'cdn.discordapp.com',
+  'media.discordapp.net',
+  'cdn.discord.com',
+  'images-ext-1.discordapp.net',
+  'images-ext-2.discordapp.net',
+]);
 const SKIPPED_FILE_NAMES = new Set([
   ...Object.values(STICKERS).map((n) => n.toLowerCase()),
   ...PAYEES.map((p) => path.basename(p.qrFile).toLowerCase()),
@@ -258,7 +264,10 @@ async function inlineImages(messages) {
   const wanted = [];
   for (const m of messages) {
     for (const att of m.attachments ? m.attachments.values() : []) {
-      const isImg = (att.contentType || '').startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(att.name || '');
+      const isImg =
+        (att.contentType || '').startsWith('image/') ||
+        /\.(png|jpe?g|webp|gif|bmp|tiff)($|\?)/i.test(att.name || '') ||
+        /\.(png|jpe?g|webp|gif|bmp|tiff)($|\?)/i.test(att.url || '');
       if (isImg) wanted.push({ url: att.url, size: att.size });
     }
     for (const e of m.embeds || []) {
@@ -333,16 +342,33 @@ function buildHtmlTranscript(channel, sortedMessages, images = new Map()) {
       // Attachments
       const attachmentsHtml = Array.from(m.attachments ? m.attachments.values() : [])
         .map((att) => {
-          const isImg = (att.contentType || '').startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(att.name || '');
+          const isImg =
+            (att.contentType || '').startsWith('image/') ||
+            /\.(png|jpe?g|webp|gif|bmp|tiff)($|\?)/i.test(att.name || '') ||
+            /\.(png|jpe?g|webp|gif|bmp|tiff)($|\?)/i.test(att.url || '');
+          const alt = escapeHtml(att.name || 'Image');
           if (isImg) {
             const saved = images.get(att.url);
-            const alt = escapeHtml(att.name || 'Image');
-            if (saved) return `<div class="attachment"><img src="${saved}" alt="${alt}" /></div>`;
-            return `<div class="attachment"><a href="${att.url}" target="_blank"><img src="${att.url}" alt="${alt}" /></a></div>`;
+            if (saved) {
+              return `<div class="attachment"><a href="${saved}" target="_blank"><img src="${saved}" alt="${alt}" /></a><div class="att-name">🖼️ ${alt}</div></div>`;
+            }
+            return `<div class="attachment"><a href="${att.url}" target="_blank"><img src="${att.url}" alt="${alt}" onerror="this.style.display='none'" /></a><div class="att-name">📎 <a href="${att.url}" target="_blank" style="color:#00a8fc;">${alt}</a></div></div>`;
           }
-          return `<div class="attachment"><a href="${att.url}" target="_blank" style="color:#00a8fc; text-decoration:none;">📎 ${escapeHtml(att.name || 'Attachment')}</a></div>`;
+          return `<div class="attachment"><a href="${att.url}" target="_blank" style="color:#00a8fc; text-decoration:none;">📎 ${alt}</a></div>`;
         })
         .join('');
+
+      const hasBody = Boolean(bodyHtml);
+      const hasEmbeds = (m.embeds || []).length > 0;
+      const hasAtts = (m.attachments ? m.attachments.size : 0) > 0;
+
+      let innerContent = '';
+      if (hasBody) innerContent += `<div class="body">${bodyHtml}</div>`;
+      if (hasEmbeds) innerContent += embedsHtml;
+      if (hasAtts) innerContent += attachmentsHtml;
+      if (!hasBody && !hasEmbeds && !hasAtts) {
+        innerContent = '<div class="body" style="color:#80848e; font-style:italic;">[Message text or attachment unavailable — ensure Message Content Intent is enabled in Discord Developer Portal]</div>';
+      }
 
       return `
       <div class="message">
@@ -353,9 +379,7 @@ function buildHtmlTranscript(channel, sortedMessages, images = new Map()) {
             ${botTag}
             <span class="timestamp">${timeStr}</span>
           </div>
-          ${bodyHtml ? `<div class="body">${bodyHtml}</div>` : ''}
-          ${embedsHtml}
-          ${attachmentsHtml}
+          ${innerContent}
         </div>
       </div>`;
     })
@@ -499,10 +523,15 @@ function buildHtmlTranscript(channel, sortedMessages, images = new Map()) {
     margin-top: 8px;
   }
   .attachment img {
-    max-width: 320px;
-    max-height: 240px;
+    max-width: 480px;
+    max-height: 360px;
     border-radius: 6px;
     display: block;
+  }
+  .att-name {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #949ba4;
   }
 </style>
 </head>
