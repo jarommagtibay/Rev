@@ -31,7 +31,6 @@ const {
 const {
   EPHEMERAL,
   isStaff,
-  parseOrderAmount,
   makeSafeName,
   ticketLimitMessage,
 } = require('../core/helpers');
@@ -461,10 +460,11 @@ async function handleModalSubmit(interaction) {
   const expressVal = (interaction.fields.getTextInputValue('express_delivery') || '').trim().toLowerCase();
   const isExpress = expressVal === 'yes' || expressVal === 'y' || expressVal === 'true';
 
-  const amount = parseOrderAmount(amountStr);
+  const cleanStr = amountStr.replace(/[^0-9]/g, '');
+  const amount = parseInt(cleanStr, 10);
   if (!amount || isNaN(amount) || amount <= 0) {
     return interaction.reply({
-      content: 'Please enter a valid positive Robux amount (e.g. 500, 1000).',
+      content: 'Please enter a valid positive Robux amount (e.g. 200, 500, 1000).',
       flags: EPHEMERAL,
     });
   }
