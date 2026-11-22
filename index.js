@@ -277,10 +277,13 @@ client.on(Events.MessageCreate, async (message) => {
 
           // Auto-scan GCash / Maya Reference Number & Amount
           try {
-            scanResult = await extractReceiptDetails(buf, message.content);
+            scanResult = await extractReceiptDetails(buf, message.content, imgAttachment.name);
           } catch (scanErr) {
             console.warn('Receipt text extraction warning:', scanErr);
           }
+
+          // If the image is not a payment receipt (e.g. customer avatar, profile screenshot, meme), ignore it!
+          if (!scanResult.isReceipt) return;
 
           if (!Array.isArray(data.receiptHashes)) data.receiptHashes = [];
           const previous = data.receiptHashes.find(

@@ -110,13 +110,78 @@ async function scanReceiptImage(buffer) {
   }
 }
 
+const PAYMENT_KEYWORDS = [
+  'gcash',
+  'express send',
+  'send money',
+  'sent to',
+  'transfer to',
+  'successfully sent',
+  'payment details',
+  'transaction details',
+  'transaction no',
+  'reference no',
+  'ref no',
+  'ref. no',
+  'reference id',
+  'maya',
+  'paymaya',
+  'money sent',
+  'instapay',
+  'pesonet',
+  'bdo',
+  'bpi',
+  'unionbank',
+  'seabank',
+  'gotyme',
+  'payment received',
+  'amount paid',
+  'total amount',
+  'payment successful',
+];
+
+/**
+ * Validates if the scanned image is actually a payment receipt and not a random screenshot.
+ * @param {string} rawText
+ * @param {string|null} refNo
+ * @param {string|null} amount
+ * @param {string} [attachmentName]
+ * @param {string} [messageContent]
+ * @returns {boolean}
+ */
+function checkIsReceipt(rawText, refNo, amount, attachmentName = '', messageContent = '') {
+  // 1. If an authentic reference number was extracted, it is 100% a receipt
+  if (refNo) return true;
+
+  const combined = `${rawText || ''} ${messageContent || ''} ${attachmentName || ''}`.toLowerCase();
+
+  // 2. Check for payment provider or transaction keywords
+  const hasKeyword = PAYMENT_KEYWORDS.some((kw) => combined.includes(kw));
+  if (hasKeyword && (amount || /\b(paid|sent|transfer|ref|php|₱)\b/i.test(combined))) {
+    return true;
+  }
+
+  // 3. Check if customer's message explicitly says it is a payment receipt
+  if (/\b(receipt|bayad|paid|eto receipt|ito receipt|proof|screenshot ng bayad|payment|nagbayad|nasend)\b/i.test(messageContent || '')) {
+    return true;
+  }
+
+  // 4. Check if the file name itself indicates a receipt
+  if (/^(receipt|gcash|maya|pay|payment|transfer)[_-]?/i.test(attachmentName || '')) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Main extractor: parses reference number and amount from image buffer and fallback text.
  * @param {Buffer} [imageBuffer]
  * @param {string} [fallbackText]
- * @returns {Promise<{ refNo: string|null, amount: string|null, rawText: string, ocrAvailable: boolean }>}
+ * @param {string} [attachmentName]
+ * @returns {Promise<{ refNo: string|null, amount: string|null, rawText: string, ocrAvailable: boolean, isReceipt: boolean }>}
  */
-async function extractReceiptDetails(imageBuffer, fallbackText = '') {
+async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentName = '') {
   let rawText = fallbackText || '';
   const ocrAvailable = Boolean(Tesseract);
 
@@ -129,12 +194,14 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '') {
 
   const refNo = findReferenceNumber(rawText);
   const amount = findAmount(rawText);
+  const isReceipt = checkIsReceipt(rawText, refNo, amount, attachmentName, fallbackText);
 
   return {
     refNo,
     amount,
     rawText,
     ocrAvailable,
+    isReceipt,
   };
 }
 
@@ -142,4 +209,5 @@ module.exports = {
   extractReceiptDetails,
   findReferenceNumber,
   findAmount,
+  checkIsReceipt,
 };
