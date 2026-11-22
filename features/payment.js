@@ -106,6 +106,7 @@ async function runCheckReceipt(interaction) {
     });
   }
 
+  const providerText = scanned.provider || 'E-Wallet / Bank';
   const refText = scanned.refNo
     ? `\`${scanned.refNo}\` *(tap to copy on mobile)*`
     : '*Not detected by OCR*';
@@ -115,12 +116,14 @@ async function runCheckReceipt(interaction) {
     : '✅ **Unique Receipt** (First time seen)';
 
   const embed = new EmbedBuilder()
-    .setColor(scanned.isDuplicate ? 0xff0000 : COLOR)
+    .setColor(scanned.isDuplicate ? 0xff0000 : scanned.isFailed ? 0xff9900 : COLOR)
     .setTitle('🧾  Staff Receipt Details (Staff Only)')
     .setDescription(
+      `• **Bank / App:** ${providerText}\n` +
       `• **Ref No:** ${refText}\n` +
       `• **Amount:** ${amountText}\n` +
       `• **Duplicate Check:** ${dupText}\n` +
+      (scanned.isFailed ? `• **Status:** ⚠️ **Failed / Incomplete Transfer**\n` : '') +
       `• **Scanned:** <t:${Math.floor(scanned.timestamp / 1000)}:R>`
     )
     .setFooter({ text: 'Only you can see this message • Reveux Staff' });

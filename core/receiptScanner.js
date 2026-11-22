@@ -10,7 +10,7 @@ try {
 }
 
 /**
- * Extracts a GCash or Maya Reference Number from raw OCR text.
+ * Extracts a GCash, Maya, BDO or Bank Reference Number from raw OCR text.
  * @param {string} text
  * @returns {string|null}
  */
@@ -20,33 +20,38 @@ function findReferenceNumber(text) {
   // Clean OCR noise while preserving numbers and dashes
   const clean = text.replace(/[\r\n]+/g, ' ');
 
-  // 1. Explicit GCash "Ref No." or "Reference No." or "Ref. Number"
-  const gcashLabeled = clean.match(
-    /(?:ref(?:erence)?\.?\s*(?:no\.?|id|number)?[:\s]*)(\d{3,4}[\s-]?\d{4}[\s-]?\d{4,5})\b/i
+  // 1. Explicit labeled reference with letters/numbers/dashes:
+  // e.g. "Reference no. BN-20261120-73005435", "Ref No. 1002 8492 1038", "Reference ID: ABCD-1234-EF56"
+  const labeled = clean.match(
+    /(?:ref(?:erence)?\.?\s*(?:no\.?|id|number)?[:\s]+)([A-Z0-9]{2,8}[-_\s]?[A-Z0-9]{4,14}(?:[-_\s]?[A-Z0-9]{4,12})?)\b/i
   );
-  if (gcashLabeled) {
-    const raw = gcashLabeled[1].replace(/[\s-]/g, '');
-    if (raw.length >= 12 && raw.length <= 14) {
-      return raw.replace(/(\d{4})(\d{4})(\d{4,6})/, '$1 $2 $3');
+  if (labeled) {
+    const raw = labeled[1].trim();
+    if (raw.length >= 8 && raw.length <= 32) {
+      return raw;
     }
   }
 
-  // 2. Maya Reference ID: Alphanumeric 4-4-4 (e.g. ABCD-1234-EF56)
-  const mayaLabeled = clean.match(
-    /(?:ref(?:erence)?\.?\s*(?:id|no\.?)?[:\s]*)([a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})\b/i
-  );
-  if (mayaLabeled) {
-    return mayaLabeled[1].toUpperCase();
+  // 2. Bank prefix reference: BN-YYYYMMDD-XXXXXXXX (BDO), UB-..., BPI-...
+  const bankPrefix = clean.match(/\b([A-Z]{2,4}-\d{6,10}-\d{4,10})\b/i);
+  if (bankPrefix) {
+    return bankPrefix[1].toUpperCase();
   }
 
-  // 3. Standalone spaced 12-13 digits: "1002 8492 1038" or "0001 2345 6789"
+  // 3. Spaced digits (GCash): "1002 8492 1038" or "0001 2345 6789"
   const spacedDigits = clean.match(/\b(\d{4}\s\d{4}\s\d{4,5})\b/);
   if (spacedDigits) {
     return spacedDigits[1];
   }
 
-  // 4. Consecutive 12-14 digits starting with standard GCash prefixes (100x or 000x)
-  const continuousDigits = clean.match(/\b(100\d{9,11}|00\d{10,12})\b/);
+  // 4. Maya 4-4-4: "ABCD-1234-EF56"
+  const maya = clean.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4})\b/i);
+  if (maya) {
+    return maya[1].toUpperCase();
+  }
+
+  // 5. Continuous 12-14 digits starting with standard GCash prefixes (100x or 000x)
+  const continuousDigits = clean.match(/\b(100\d{9,11}|00\d{10,12}|\d{12,13})\b/);
   if (continuousDigits) {
     const raw = continuousDigits[1];
     return raw.replace(/(\d{4})(\d{4})(\d{4,5})/, '$1 $2 $3');
@@ -140,6 +145,50 @@ const PAYMENT_KEYWORDS = [
   'payment successful',
 ];
 
+const FAILED_KEYWORDS = [
+  'unable to send money',
+  'unable to send',
+  'transaction failed',
+  'transfer failed',
+  'payment failed',
+  'unsuccessful',
+  'declined',
+  'cancelled',
+  'failed to send',
+  'try again later',
+  'experiencing issues',
+];
+
+/**
+ * Checks if the screenshot is an error or failed/declined transaction.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function checkIsFailedTransaction(text) {
+  if (!text || typeof text !== 'string') return false;
+  const lower = text.toLowerCase();
+  return FAILED_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/**
+ * Identifies the payment provider/bank from text.
+ * @param {string} text
+ * @returns {string}
+ */
+function detectProvider(text) {
+  if (!text) return 'E-Wallet / Bank';
+  const lower = text.toLowerCase();
+  if (lower.includes('bdo')) return 'BDO Pay / Online';
+  if (lower.includes('bpi')) return 'BPI';
+  if (lower.includes('unionbank')) return 'UnionBank';
+  if (lower.includes('seabank')) return 'SeaBank';
+  if (lower.includes('gotyme')) return 'GoTyme Bank';
+  if (lower.includes('maya') || lower.includes('paymaya')) return 'Maya';
+  if (lower.includes('gcash')) return 'GCash';
+  if (lower.includes('instapay')) return 'InstaPay';
+  return 'E-Wallet / Bank';
+}
+
 /**
  * Validates if the scanned image is actually a payment receipt and not a random screenshot.
  * @param {string} rawText
@@ -157,7 +206,7 @@ function checkIsReceipt(rawText, refNo, amount, attachmentName = '', messageCont
 
   // 2. Check for payment provider or transaction keywords
   const hasKeyword = PAYMENT_KEYWORDS.some((kw) => combined.includes(kw));
-  if (hasKeyword && (amount || /\b(paid|sent|transfer|ref|php|₱)\b/i.test(combined))) {
+  if (hasKeyword && (amount || /\b(paid|sent|transfer|ref|php|₱|unable to send)\b/i.test(combined))) {
     return true;
   }
 
@@ -179,7 +228,7 @@ function checkIsReceipt(rawText, refNo, amount, attachmentName = '', messageCont
  * @param {Buffer} [imageBuffer]
  * @param {string} [fallbackText]
  * @param {string} [attachmentName]
- * @returns {Promise<{ refNo: string|null, amount: string|null, rawText: string, ocrAvailable: boolean, isReceipt: boolean }>}
+ * @returns {Promise<{ refNo: string|null, amount: string|null, rawText: string, ocrAvailable: boolean, isReceipt: boolean, isFailed: boolean, provider: string }>}
  */
 async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentName = '') {
   let rawText = fallbackText || '';
@@ -195,6 +244,8 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentN
   const refNo = findReferenceNumber(rawText);
   const amount = findAmount(rawText);
   const isReceipt = checkIsReceipt(rawText, refNo, amount, attachmentName, fallbackText);
+  const isFailed = checkIsFailedTransaction(rawText);
+  const provider = detectProvider(rawText);
 
   return {
     refNo,
@@ -202,6 +253,8 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentN
     rawText,
     ocrAvailable,
     isReceipt,
+    isFailed,
+    provider,
   };
 }
 
@@ -210,4 +263,6 @@ module.exports = {
   findReferenceNumber,
   findAmount,
   checkIsReceipt,
+  checkIsFailedTransaction,
+  detectProvider,
 };

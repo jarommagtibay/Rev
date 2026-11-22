@@ -285,6 +285,48 @@ client.on(Events.MessageCreate, async (message) => {
           // If the image is not a payment receipt (e.g. customer avatar, profile screenshot, meme), ignore it!
           if (!scanResult.isReceipt) return;
 
+          // Check if the screenshot is a FAILED / UNPROCESSED transaction (e.g. "Unable to Send Money")
+          if (scanResult.isFailed) {
+            if (AUDIT_CHANNEL_ID) {
+              const auditChan = await client.channels.fetch(AUDIT_CHANNEL_ID).catch(() => null);
+              if (auditChan) {
+                await auditChan.send({
+                  content: `<@&${STAFF_ROLE_ID}> ⚠️ **FAILED / REJECTED PAYMENT SCREENSHOT!**`,
+                  embeds: [
+                    new EmbedBuilder()
+                      .setColor(0xff3333)
+                      .setTitle('⚠️ WARNING: Failed / Unprocessed Transaction Detected!')
+                      .setDescription(
+                        `A screenshot showing an **unsuccessful / failed transfer** was posted in <#${message.channel.id}>!\n\n` +
+                        `• **Status:** ❌ **"Unable to Send Money" / Transaction Incomplete**\n` +
+                        `• **Bank / App:** ${scanResult.provider}\n` +
+                        `• **Ref No:** ${scanResult.refNo ? `\`${scanResult.refNo}\` *(tap to copy)*` : '*Not detected*'}\n` +
+                        `• **Amount:** ${scanResult.amount ? `\`${scanResult.amount}\`` : '*Not detected*'}\n` +
+                        `• **Customer:** <@${message.author.id}> (@${message.author.username})\n\n` +
+                        `🛑 **DO NOT DELIVER:** The money was NOT sent to your account!`
+                      )
+                      .setThumbnail(imgAttachment.url)
+                      .setTimestamp(),
+                  ],
+                });
+              }
+            }
+
+            await message.channel.send({
+              embeds: [
+                new EmbedBuilder()
+                  .setColor(0xff9900)
+                  .setTitle('⚠️  Transaction Notice: Incomplete Transfer')
+                  .setDescription(
+                    `The screenshot you uploaded indicates a **failed or incomplete transfer** (*"Unable to Send Money"*).\n\n` +
+                    `Please check your banking app and send a **successful** transaction receipt once your payment goes through!`
+                  )
+                  .setTimestamp(),
+              ],
+            });
+            return;
+          }
+
           if (!Array.isArray(data.receiptHashes)) data.receiptHashes = [];
           const previous = data.receiptHashes.find(
             (r) => r.hash === imgHash && r.channelId !== message.channel.id
@@ -364,6 +406,7 @@ client.on(Events.MessageCreate, async (message) => {
                   .setTitle(`🧾  Receipt Scanned: #${message.channel.name}`)
                   .setDescription(
                     `A payment screenshot was submitted in <#${message.channel.id}>:\n\n` +
+                    `• **Bank / App:** ${scanResult.provider}\n` +
                     `• **Ref No:** ${refDisplay}\n` +
                     `• **Amount:** ${amountDisplay}\n` +
                     `• **Duplicate Check:** ✅ **Unique Receipt** (First time seen)\n` +
@@ -385,6 +428,8 @@ client.on(Events.MessageCreate, async (message) => {
             entry.lastScannedReceipt = {
               refNo: scanResult.refNo,
               amount: scanResult.amount,
+              provider: scanResult.provider,
+              isFailed: scanResult.isFailed,
               isDuplicate,
               timestamp: Date.now(),
             };
