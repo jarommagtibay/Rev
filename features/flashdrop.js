@@ -18,6 +18,7 @@ const {
   STAFF_ROLE_ID,
   EXPRESS_FEE,
   MAX_TICKETS_PER_PRODUCT,
+  GUILD_ID,
 } = require('../config');
 const client = require('../core/client');
 const {
@@ -80,6 +81,12 @@ const commands = [
             .setName('channel')
             .setDescription('Channel to post the flash sale in (default: #daily-sale)')
             .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt
+            .setName('force')
+            .setDescription('Force start and override any existing active flash sale (default: false)')
             .setRequired(false)
         )
     )
@@ -151,10 +158,12 @@ async function endFlashDrop(reason = 'ended') {
   if (!data.flashDrop || !data.flashDrop.active) return;
   const fd = data.flashDrop;
   fd.active = false;
+  fd.endedAt = Date.now();
+  fd.concludeReason = reason;
   saveData();
 
   try {
-    const guild = await client.guilds.fetch(client.guilds.cache.firstKey()).catch(() => null);
+    const guild = GUILD_ID ? await client.guilds.fetch(GUILD_ID).catch(() => null) : client.guilds.cache.first();
     if (!guild) return;
     const channel = await guild.channels.fetch(fd.channelId).catch(() => null);
     if (!channel) return;
@@ -210,13 +219,30 @@ setInterval(async () => {
 
 // Slash command handlers
 async function handleStart(interaction) {
+  // Sync state first: auto-expire if past endsAt or stock <= 0
+  if (data.flashDrop && data.flashDrop.active) {
+    if (Date.now() >= data.flashDrop.endsAt) {
+      await endFlashDrop('expired');
+    } else if (data.flashDrop.stock <= 0) {
+      await endFlashDrop('sold_out');
+    }
+  }
+
+  const force = interaction.options.getBoolean('force') || false;
+
   if (data.flashDrop && data.flashDrop.active && Date.now() < data.flashDrop.endsAt && data.flashDrop.stock > 0) {
-    return interaction.reply({
-      content:
-        `⚠️ A flash sale is already running with **${data.flashDrop.stock.toLocaleString()} R$** remaining! ` +
-        `Use \`/flashdrop stop\` first if you want to cancel it.`,
-      flags: EPHEMERAL,
-    });
+    if (!force) {
+      const endsAtSec = Math.floor(data.flashDrop.endsAt / 1000);
+      return interaction.reply({
+        content:
+          `⚠️ A flash sale is currently running with **${data.flashDrop.stock.toLocaleString()} R$** remaining (ends <t:${endsAtSec}:R>)!\n\n` +
+          `• Run \`/flashdrop stop\` to cancel it first, **OR**\n` +
+          `• Re-run with \`force: True\` to immediately override and start the new flash drop.`,
+        flags: EPHEMERAL,
+      });
+    }
+    // Force override: conclude current sale cleanly first
+    await endFlashDrop('stopped');
   }
 
   const stock = interaction.options.getInteger('stock');
@@ -260,9 +286,28 @@ async function handleStart(interaction) {
 }
 
 async function handleStop(interaction) {
+  // Sync state first: auto-expire if past endsAt or stock <= 0
+  if (data.flashDrop && data.flashDrop.active) {
+    if (Date.now() >= data.flashDrop.endsAt) {
+      await endFlashDrop('expired');
+      return interaction.reply({
+        content: '⏰ The flash sale already reached its time limit and was marked as expired.',
+        flags: EPHEMERAL,
+      });
+    } else if (data.flashDrop.stock <= 0) {
+      await endFlashDrop('sold_out');
+      return interaction.reply({
+        content: '🔥 The flash sale was already sold out and marked as concluded.',
+        flags: EPHEMERAL,
+      });
+    }
+  }
+
   if (!data.flashDrop || !data.flashDrop.active) {
     return interaction.reply({
-      content: 'There is no active flash sale currently running.',
+      content:
+        'ℹ️ There is no active flash sale currently running.\n' +
+        (data.flashDrop ? `The previous flash drop has already concluded. You can start a new one anytime using \`/flashdrop start\`.` : ''),
       flags: EPHEMERAL,
     });
   }
@@ -282,19 +327,52 @@ async function handleStatus(interaction) {
     });
   }
 
+  // Sync state first: auto-expire if past endsAt or stock <= 0
+  if (data.flashDrop.active) {
+    if (Date.now() >= data.flashDrop.endsAt) {
+      await endFlashDrop('expired');
+    } else if (data.flashDrop.stock <= 0) {
+      await endFlashDrop('sold_out');
+    }
+  }
+
   const fd = data.flashDrop;
   const isRunning = fd.active && Date.now() < fd.endsAt && fd.stock > 0;
   const endsAtSec = Math.floor(fd.endsAt / 1000);
+  const endedSec = Math.floor((fd.endedAt || Date.now()) / 1000);
+
+  let statusText = '🟢 **ACTIVE**';
+  let timeText = `Ends <t:${endsAtSec}:R> (<t:${endsAtSec}:t>)`;
+
+  if (!isRunning) {
+    const reasonLabel =
+      fd.concludeReason === 'stopped'
+        ? 'Stopped by Staff'
+        : fd.concludeReason === 'sold_out'
+        ? 'Sold Out'
+        : fd.concludeReason === 'expired'
+        ? 'Expired'
+        : 'Concluded';
+
+    statusText = `🔴 **CONCLUDED** *(${reasonLabel})*`;
+    if (fd.endedAt) {
+      timeText = `Concluded <t:${endedSec}:R>`;
+    } else if (Date.now() >= fd.endsAt) {
+      timeText = `Expired <t:${endsAtSec}:R>`;
+    } else {
+      timeText = 'Concluded by staff';
+    }
+  }
 
   const embed = new EmbedBuilder()
     .setColor(isRunning ? 0xff9900 : COLOR)
     .setTitle(isRunning ? '⚡ Active Flash Sale Status' : '📋 Recent Flash Sale Status')
     .addFields(
-      { name: 'Status', value: isRunning ? '🟢 **ACTIVE**' : '🔴 **CONCLUDED**', inline: true },
+      { name: 'Status', value: statusText, inline: true },
       { name: 'Flash Rate', value: `${CURRENCY}${fd.rate} / 100 R$`, inline: true },
       { name: 'Regular Rate', value: `${CURRENCY}${fd.regularRate} / 100 R$`, inline: true },
       { name: 'Remaining Stock', value: `${Math.max(0, fd.stock).toLocaleString()} / ${fd.initialStock.toLocaleString()} R$`, inline: true },
-      { name: 'Time', value: isRunning ? `Ends <t:${endsAtSec}:R>` : `Ended <t:${endsAtSec}:R>`, inline: true },
+      { name: 'Time', value: timeText, inline: true },
       { name: 'Channel', value: `<#${fd.channelId}>`, inline: true }
     )
     .setFooter({ text: `Started by @${fd.startedBy}` });
