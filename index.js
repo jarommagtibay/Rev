@@ -9,7 +9,7 @@ const { TOKEN, CLIENT_ID, GUILD_ID, STAFF_ROLE_ID, AUDIT_CHANNEL_ID } = require(
 const client = require('./core/client');
 const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
-const { EPHEMERAL } = require('./core/helpers');
+const { EPHEMERAL, isStaff } = require('./core/helpers');
 const { extractReceiptDetails } = require('./core/receiptScanner');
 
 // Fail fast if critical config is missing
@@ -176,9 +176,49 @@ client.on(Events.ChannelDelete, async (channel) => {
 // When a customer uploads an image/receipt into their ticket channel before payment is marked received
 client.on(Events.MessageCreate, async (message) => {
   if (!message.guild || message.author.bot) return;
+
+  // 1. Auto-clear staff AFK status as soon as staff speaks in the server
+  if (data.staffAfk && data.staffAfk[message.author.id]) {
+    delete data.staffAfk[message.author.id];
+    saveData();
+    message.channel
+      .send(`👋 Welcome back <@${message.author.id}>! Your AFK status has been removed.`)
+      .then((m) => setTimeout(() => m.delete().catch(() => {}), 4000))
+      .catch(() => {});
+  }
+
   const topic = message.channel.topic || '';
   if (!topic.startsWith('ticket:')) return;
 
+  // 2. Staff AFK Auto-Responder to customer messages in tickets
+  if (!isStaff(message.member)) {
+    const afkList = Object.values(data.staffAfk || {});
+    if (afkList.length > 0) {
+      const entry = data.queue.find((e) => e.channelId === message.channel.id);
+      const now = Date.now();
+      // Cooldown: reply at most once every 10 minutes per ticket
+      if (!entry || !entry._lastAfkReply || now - entry._lastAfkReply > 10 * 60 * 1000) {
+        if (entry) entry._lastAfkReply = now;
+        const reasons = afkList.map((a) => `• <@${a.userId}>: *"${a.reason}"*`).join('\n');
+        await message.channel
+          .send({
+            embeds: [
+              new EmbedBuilder()
+                .setColor(0x2b2d31)
+                .setTitle('⏸️  Staff Is Temporarily Away')
+                .setDescription(
+                  `Our staff is temporarily stepped away:\n\n${reasons}\n\n` +
+                  `They will attend to your ticket as soon as they return! Thank you for your patience.`
+                )
+                .setTimestamp(),
+            ],
+          })
+          .catch(() => {});
+      }
+    }
+  }
+
+  // 3. Receipt Auto-Detection
   // Only trigger if an image or receipt attachment was sent
   const hasImage =
     message.attachments.some(

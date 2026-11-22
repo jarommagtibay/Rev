@@ -29,6 +29,7 @@ function loadData() {
       staffDuty: d.staffDuty && typeof d.staffDuty === 'object' ? d.staffDuty : {},
       orderCounter: typeof d.orderCounter === 'number' ? d.orderCounter : 1000,
       flashDrop: d.flashDrop && typeof d.flashDrop === 'object' ? d.flashDrop : null,
+      staffAfk: d.staffAfk && typeof d.staffAfk === 'object' ? d.staffAfk : {},
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -60,6 +61,7 @@ function loadData() {
       staffDuty: {},
       orderCounter: 1000,
       flashDrop: null,
+      staffAfk: {},
     };
   }
 }
