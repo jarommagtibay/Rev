@@ -11,6 +11,7 @@ const { COLOR, CURRENCY, RECEIPT_CHANNEL_ID, STAFF_ROLE_ID, CATEGORY_ID, PAYEES 
 const client = require('./client');
 const M = require('../messages');
 const { baseName, fill } = require('./helpers');
+const { generateReceiptCard } = require('./receiptCard');
 
 // Big headline at the top of the order card: what was bought + the price, large and easy to see.
 // Only decoration: nothing in the bot reads the description, the fields below stay the real data.
@@ -133,53 +134,99 @@ function vouchRow(mainMessageId) {
   );
 }
 
-// Posts a receipt of a completed order in the receipt channel (if RECEIPT_CHANNEL_ID is set)
+// Posts a sleek, redesigned receipt of a completed order in the receipt channel (if RECEIPT_CHANNEL_ID is set)
 async function postReceipt(embed, ticketChannel) {
   if (!RECEIPT_CHANNEL_ID) return;
   try {
-    const get = (name) =>
-      ((embed.data.fields || []).find((f) => f.name === name) || {}).value || '-';
+    const fields = embed.data ? embed.data.fields || [] : embed.fields || [];
+    const get = (name) => ((fields.find((f) => f.name === name) || {}).value || '-');
+    const clean = (val) => val.replace(/```\n?/g, '').trim();
 
-    let fields;
+    const orderId = get('Order ID') !== '-' ? get('Order ID') : 'REV-XXXX';
+    const customer = get('Opened by');
+    const payment = get('Payment');
+    const status = get('Status');
+    const ticketName = baseName(ticketChannel.name);
+
+    let productName = 'Robux';
+    let priceText = get('Price');
+    let accountInfo = '-';
+    let gameName = 'Roblox';
+
     if (isRobuxOrder(embed)) {
-      fields = [
-        { name: 'Customer', value: get('Opened by'), inline: true },
-        { name: 'Account Name', value: get('Account Name'), inline: true },
-        { name: 'Account Username', value: get('Account Username'), inline: true },
-        { name: 'Robux Amount', value: get('Robux Amount'), inline: true },
-        { name: 'Price', value: get('Price'), inline: true },
-        { name: 'Ticket', value: baseName(ticketChannel.name), inline: true },
-        { name: 'Payment', value: get('Payment') },
-        { name: 'Status', value: get('Status') },
-      ];
+      const amount = get('Robux Amount');
+      productName = `${Number(amount.replace(/,/g, '') || 0).toLocaleString()} Robux`;
+      const accUser = clean(get('Account Username'));
+      const accName = clean(get('Account Name'));
+      accountInfo = accUser !== '-' ? accUser : accName;
+      if (accName !== '-' && accName !== accUser) {
+        accountInfo += ` (${accName})`;
+      }
     } else {
-      // Game order: Game, Package, Price and the ID fields are copied as they are
-      const skip = new Set(['Opened by', 'Queue Position', 'Payment', 'Status', 'Vouch']);
-      const details = (embed.data.fields || [])
+      gameName = get('Game') !== '-' ? get('Game') : 'Mobile Games';
+      productName = `${get('Package')} (${gameName})`;
+      const skip = new Set(['Opened by', 'Queue Position', 'Payment', 'Status', 'Vouch', 'Game', 'Package', 'Price', 'Order ID']);
+      const details = fields
         .filter((f) => !skip.has(f.name))
-        .map((f) => ({ name: f.name, value: f.value, inline: true }));
-      fields = [
-        { name: 'Customer', value: get('Opened by'), inline: true },
-        ...details,
-        { name: 'Ticket', value: baseName(ticketChannel.name), inline: true },
-        { name: 'Payment', value: get('Payment') },
-        { name: 'Status', value: get('Status') },
-      ];
+        .map((f) => `${f.name}: ${clean(f.value)}`);
+      accountInfo = details.join(' • ') || '-';
     }
 
-    const orderId = get('Order ID');
-    if (orderId && orderId !== '-') {
-      fields.unshift({ name: 'Order ID', value: orderId, inline: true });
+    // Try generating the graphic PNG receipt card
+    let receiptResult = null;
+    try {
+      receiptResult = await generateReceiptCard({
+        orderId: orderId.replace(/[`#]/g, ''),
+        customerName: customer.replace(/<@!?(\d+)>/, '$1'),
+        customerId: customer.replace(/[^0-9]/g, ''),
+        productName,
+        priceText: priceText !== '-' ? priceText : '₱0.00',
+        accountInfo,
+        gameName,
+        staffName: payment.replace(/<@!?(\d+)>/, '$1') || 'Staff',
+        timestamp: Date.now(),
+      });
+    } catch (cardErr) {
+      console.warn('Could not generate receipt card in postReceipt:', cardErr);
     }
 
-    const receipt = new EmbedBuilder()
-      .setTitle(`🧾  Order Receipt ${orderId && orderId !== '-' ? orderId : ''}`.trim())
+    const receiptChannel = await client.channels.fetch(RECEIPT_CHANNEL_ID).catch(() => null);
+    if (!receiptChannel) return;
+
+    // Modern, aesthetic embed layout for #ticket-receipt
+    const receiptEmbed = new EmbedBuilder()
       .setColor(COLOR)
-      .addFields(fields)
+      .setTitle(`🧾  Order Receipt ${orderId !== '-' ? orderId : ''}`.trim())
+      .setDescription(
+        `### ✨ Order Completed & Verified!\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `• **Order ID:** \`${orderId}\`\n` +
+        `• **Customer:** ${customer}\n` +
+        `• **Product:** **${productName}**\n` +
+        `• **Price / Total:** **${priceText}**\n` +
+        `• **Account:** \`${accountInfo}\`\n` +
+        `• **Ticket:** \`#${ticketName}\`\n` +
+        `• **Payment:** ${payment}\n` +
+        `• **Status:** ${status}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+      )
+      .setFooter({ text: `Revéux Shop • Official Receipt ${orderId}` })
       .setTimestamp();
 
-    const receiptChannel = await client.channels.fetch(RECEIPT_CHANNEL_ID);
-    await receiptChannel.send({ embeds: [receipt] });
+    const sendOpts = { embeds: [receiptEmbed] };
+
+    // Attach high-res PNG invoice if Canvas generated it!
+    if (receiptResult && receiptResult.attachment) {
+      receiptEmbed.setImage(`attachment://${receiptResult.attachment.name}`);
+      sendOpts.files = [receiptResult.attachment];
+    } else if (receiptResult && receiptResult.embed && receiptResult.embed.data && receiptResult.embed.data.description) {
+      // Append ASCII receipt card if canvas is not installed
+      receiptEmbed.setDescription(
+        receiptEmbed.data.description + '\n\n' + receiptResult.embed.data.description
+      );
+    }
+
+    await receiptChannel.send(sendOpts);
   } catch (err) {
     console.error('Could not post receipt:', err);
   }
