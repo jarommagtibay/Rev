@@ -12,6 +12,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName(M.commandNames.paymentreceived)
     .setDescription('Staff only: mark the payment of this ticket as received'),
+  new SlashCommandBuilder()
+    .setName('checkreceipt')
+    .setDescription('Staff only: view extracted reference number and amount of this ticket receipt'),
 ];
 
 // Payment Received button -> staff only
@@ -84,6 +87,47 @@ async function payButton(interaction) {
   });
 }
 
+// View scanned receipt details (staff only, ephemeral)
+async function runCheckReceipt(interaction) {
+  if (!isStaff(interaction.member)) {
+    return interaction.reply({
+      content: 'Only staff can use this command.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  const entry = data.queue.find((e) => e.channelId === interaction.channel.id);
+  const scanned = entry && entry.lastScannedReceipt;
+
+  if (!scanned) {
+    return interaction.reply({
+      content: 'ℹ️ No receipt screenshot has been scanned in this ticket yet.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  const refText = scanned.refNo
+    ? `\`${scanned.refNo}\` *(tap to copy on mobile)*`
+    : '*Not detected by OCR*';
+  const amountText = scanned.amount ? `**${scanned.amount}**` : '*Not detected*';
+  const dupText = scanned.isDuplicate
+    ? '🚨 **DUPLICATE RECEIPT WARNING**'
+    : '✅ **Unique Receipt** (First time seen)';
+
+  const embed = new EmbedBuilder()
+    .setColor(scanned.isDuplicate ? 0xff0000 : COLOR)
+    .setTitle('🧾  Staff Receipt Details (Staff Only)')
+    .setDescription(
+      `• **Ref No:** ${refText}\n` +
+      `• **Amount:** ${amountText}\n` +
+      `• **Duplicate Check:** ${dupText}\n` +
+      `• **Scanned:** <t:${Math.floor(scanned.timestamp / 1000)}:R>`
+    )
+    .setFooter({ text: 'Only you can see this message • Reveux Staff' });
+
+  return interaction.reply({ embeds: [embed], flags: EPHEMERAL });
+}
+
 async function handle(interaction) {
   if (interaction.isButton() && interaction.customId === 'payment_received') {
     await paymentReceivedButton(interaction);
@@ -102,6 +146,11 @@ async function handle(interaction) {
 
   if (interaction.isChatInputCommand() && interaction.commandName === M.commandNames.paymentreceived) {
     await runOrderCommand(interaction);
+    return true;
+  }
+
+  if (interaction.isChatInputCommand() && interaction.commandName === 'checkreceipt') {
+    await runCheckReceipt(interaction);
     return true;
   }
 

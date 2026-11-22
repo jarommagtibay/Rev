@@ -10,6 +10,7 @@ const client = require('./core/client');
 const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL } = require('./core/helpers');
+const { extractReceiptDetails } = require('./core/receiptScanner');
 
 // Fail fast if critical config is missing
 const required = { TOKEN, CLIENT_ID, GUILD_ID, STAFF_ROLE_ID };
@@ -225,12 +226,21 @@ client.on(Events.MessageCreate, async (message) => {
     );
 
     let isDuplicate = false;
+    let scanResult = { refNo: null, amount: null, ocrAvailable: false };
+
     if (imgAttachment && imgAttachment.url) {
       try {
         const imgRes = await fetch(imgAttachment.url).catch(() => null);
         if (imgRes && imgRes.ok) {
           const buf = Buffer.from(await imgRes.arrayBuffer());
           const imgHash = crypto.createHash('sha256').update(buf).digest('hex');
+
+          // Auto-scan GCash / Maya Reference Number & Amount
+          try {
+            scanResult = await extractReceiptDetails(buf, message.content);
+          } catch (scanErr) {
+            console.warn('Receipt text extraction warning:', scanErr);
+          }
 
           if (!Array.isArray(data.receiptHashes)) data.receiptHashes = [];
           const previous = data.receiptHashes.find(
@@ -255,9 +265,12 @@ client.on(Events.MessageCreate, async (message) => {
                         `• **Current User:** <@${message.author.id}> (@${message.author.username})\n` +
                         `• **Previously Used In:** #${previous.channelName || previous.channelId}\n` +
                         `• **Previously Uploaded By:** <@${previous.userId}> (@${previous.username})\n` +
-                        `• **Original Upload Date:** <t:${Math.floor(previous.timestamp / 1000)}:R>\n\n` +
+                        `• **Original Upload Date:** <t:${Math.floor(previous.timestamp / 1000)}:R>\n` +
+                        `• **Ref No:** ${scanResult.refNo ? `\`${scanResult.refNo}\`` : '*Not detected*'}\n` +
+                        `• **Amount:** ${scanResult.amount ? `\`${scanResult.amount}\`` : '*Not detected*'}\n\n` +
                         `⚠️ **Action Required:** Do NOT process this order until staff manually verifies genuine transaction history in GCash.`
                       )
+                      .setThumbnail(imgAttachment.url)
                       .setTimestamp(),
                   ],
                 });
@@ -285,16 +298,57 @@ client.on(Events.MessageCreate, async (message) => {
               channelName: message.channel.name,
               userId: message.author.id,
               username: message.author.username,
+              refNo: scanResult.refNo,
+              amount: scanResult.amount,
               timestamp: Date.now(),
             });
             if (data.receiptHashes.length > 5000) {
               data.receiptHashes = data.receiptHashes.slice(-5000);
             }
             saveData();
+
+            // Post Staff-Only Scanned Receipt Log in Staff Audit Channel
+            if (AUDIT_CHANNEL_ID) {
+              const auditChan = await client.channels.fetch(AUDIT_CHANNEL_ID).catch(() => null);
+              if (auditChan) {
+                const refDisplay = scanResult.refNo
+                  ? `\`${scanResult.refNo}\` *(tap to copy on mobile)*`
+                  : '*Not detected (please verify manually)*';
+                const amountDisplay = scanResult.amount ? `**${scanResult.amount}**` : '*Not detected*';
+
+                const logEmbed = new EmbedBuilder()
+                  .setColor(0x00b0f4)
+                  .setTitle(`🧾  Receipt Scanned: #${message.channel.name}`)
+                  .setDescription(
+                    `A payment screenshot was submitted in <#${message.channel.id}>:\n\n` +
+                    `• **Ref No:** ${refDisplay}\n` +
+                    `• **Amount:** ${amountDisplay}\n` +
+                    `• **Duplicate Check:** ✅ **Unique Receipt** (First time seen)\n` +
+                    `• **Customer:** <@${message.author.id}> (\`${message.author.id}\`)\n` +
+                    `• **Ticket Channel:** <#${message.channel.id}>\n` +
+                    `• **Uploaded:** <t:${Math.floor(Date.now() / 1000)}:R>`
+                  )
+                  .setThumbnail(imgAttachment.url)
+                  .setFooter({ text: 'Staff-Only Receipt Log • Reveux Shop' })
+                  .setTimestamp();
+
+                await auditChan.send({ embeds: [logEmbed] });
+              }
+            }
+          }
+
+          // Cache on entry so staff can run /checkreceipt in the ticket
+          if (entry) {
+            entry.lastScannedReceipt = {
+              refNo: scanResult.refNo,
+              amount: scanResult.amount,
+              isDuplicate,
+              timestamp: Date.now(),
+            };
           }
         }
       } catch (hashErr) {
-        console.error('Error calculating receipt hash:', hashErr);
+        console.error('Error processing receipt screenshot:', hashErr);
       }
     }
 

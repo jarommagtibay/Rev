@@ -1,0 +1,145 @@
+// GCash & Maya Receipt Scanner & Reference Number Extractor
+// Extracts Reference Numbers and Amounts from payment screenshots using OCR & smart regex.
+// Falls back gracefully if tesseract.js is not installed.
+
+let Tesseract = null;
+try {
+  Tesseract = require('tesseract.js');
+} catch {
+  // tesseract.js not yet installed, fallback regex is used on text captions
+}
+
+/**
+ * Extracts a GCash or Maya Reference Number from raw OCR text.
+ * @param {string} text
+ * @returns {string|null}
+ */
+function findReferenceNumber(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  // Clean OCR noise while preserving numbers and dashes
+  const clean = text.replace(/[\r\n]+/g, ' ');
+
+  // 1. Explicit GCash "Ref No." or "Reference No." or "Ref. Number"
+  const gcashLabeled = clean.match(
+    /(?:ref(?:erence)?\.?\s*(?:no\.?|id|number)?[:\s]*)(\d{3,4}[\s-]?\d{4}[\s-]?\d{4,5})\b/i
+  );
+  if (gcashLabeled) {
+    const raw = gcashLabeled[1].replace(/[\s-]/g, '');
+    if (raw.length >= 12 && raw.length <= 14) {
+      return raw.replace(/(\d{4})(\d{4})(\d{4,6})/, '$1 $2 $3');
+    }
+  }
+
+  // 2. Maya Reference ID: Alphanumeric 4-4-4 (e.g. ABCD-1234-EF56)
+  const mayaLabeled = clean.match(
+    /(?:ref(?:erence)?\.?\s*(?:id|no\.?)?[:\s]*)([a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})\b/i
+  );
+  if (mayaLabeled) {
+    return mayaLabeled[1].toUpperCase();
+  }
+
+  // 3. Standalone spaced 12-13 digits: "1002 8492 1038" or "0001 2345 6789"
+  const spacedDigits = clean.match(/\b(\d{4}\s\d{4}\s\d{4,5})\b/);
+  if (spacedDigits) {
+    return spacedDigits[1];
+  }
+
+  // 4. Consecutive 12-14 digits starting with standard GCash prefixes (100x or 000x)
+  const continuousDigits = clean.match(/\b(100\d{9,11}|00\d{10,12})\b/);
+  if (continuousDigits) {
+    const raw = continuousDigits[1];
+    return raw.replace(/(\d{4})(\d{4})(\d{4,5})/, '$1 $2 $3');
+  }
+
+  return null;
+}
+
+/**
+ * Extracts the transaction amount from raw OCR text.
+ * @param {string} text
+ * @returns {string|null}
+ */
+function findAmount(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  const clean = text.replace(/[\r\n]+/g, ' ');
+
+  // Look for "Amount PHP 550.00" or "Total ₱550.00"
+  const labeled = clean.match(
+    /(?:amount|total(?:\s*paid)?|paid|php|₱)\s*[:.]?\s*(?:php|₱)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i
+  );
+  if (labeled) {
+    const val = labeled[1].replace(/,/g, '');
+    const num = parseFloat(val);
+    if (!isNaN(num) && num > 0) {
+      return `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+  }
+
+  // Look for currency prefix e.g. "₱550.00" or "PHP 550.00"
+  const currencyMatch = clean.match(/(?:₱|PHP)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i);
+  if (currencyMatch) {
+    const val = currencyMatch[1].replace(/,/g, '');
+    const num = parseFloat(val);
+    if (!isNaN(num) && num > 0) {
+      return `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Scans an image buffer using Tesseract OCR if available.
+ * @param {Buffer} buffer
+ * @returns {Promise<string|null>}
+ */
+async function scanReceiptImage(buffer) {
+  if (!Tesseract || !buffer) return null;
+  try {
+    const {
+      data: { text },
+    } = await Tesseract.recognize(buffer, 'eng', {
+      errorHandler: () => {},
+    });
+    return text || null;
+  } catch (err) {
+    console.warn('Receipt OCR processing notice:', err.message || err);
+    return null;
+  }
+}
+
+/**
+ * Main extractor: parses reference number and amount from image buffer and fallback text.
+ * @param {Buffer} [imageBuffer]
+ * @param {string} [fallbackText]
+ * @returns {Promise<{ refNo: string|null, amount: string|null, rawText: string, ocrAvailable: boolean }>}
+ */
+async function extractReceiptDetails(imageBuffer, fallbackText = '') {
+  let rawText = fallbackText || '';
+  const ocrAvailable = Boolean(Tesseract);
+
+  if (imageBuffer && ocrAvailable) {
+    const ocrText = await scanReceiptImage(imageBuffer);
+    if (ocrText) {
+      rawText = `${rawText}\n${ocrText}`.trim();
+    }
+  }
+
+  const refNo = findReferenceNumber(rawText);
+  const amount = findAmount(rawText);
+
+  return {
+    refNo,
+    amount,
+    rawText,
+    ocrAvailable,
+  };
+}
+
+module.exports = {
+  extractReceiptDetails,
+  findReferenceNumber,
+  findAmount,
+};

@@ -362,6 +362,7 @@ function buildStaffHelpEmbed() {
       {
         name: '🛡️  Staff Tools & Moderation',
         value:
+          '• `/checkreceipt` — View extracted Ref No and Amount of this ticket receipt (staff only)\n' +
           '• `/duty <on|off|status> [note]` — Toggle staff on/off duty status (shows off-duty notice if all staff off-duty)\n' +
           '• `/staffstats` — Show leaderboard of processed, sent and completed orders per staff member\n' +
           '• `/report [today|week|all]` — Generate total revenue and sales volume report\n' +
