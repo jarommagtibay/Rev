@@ -148,10 +148,22 @@ function orderLabel(entry) {
   return `${entry.amount.toLocaleString()} Robux`;
 }
 
+// Cleans a Discord user's username for safe channel naming (alphanumeric only, max 20 chars)
+function makeSafeName(user) {
+  if (!user || !user.username) return 'user';
+  return (
+    user.username
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 20) || 'user'
+  );
+}
+
 module.exports = {
   fill,
   fromTemplate,
   orderLabel,
+  makeSafeName,
   EPHEMERAL,
   isStaff,
   tryLock,
