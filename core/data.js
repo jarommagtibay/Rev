@@ -28,6 +28,7 @@ function loadData() {
       receiptHashes: Array.isArray(d.receiptHashes) ? d.receiptHashes : [],
       staffDuty: d.staffDuty && typeof d.staffDuty === 'object' ? d.staffDuty : {},
       orderCounter: typeof d.orderCounter === 'number' ? d.orderCounter : 1000,
+      flashDrop: d.flashDrop && typeof d.flashDrop === 'object' ? d.flashDrop : null,
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -58,6 +59,7 @@ function loadData() {
       receiptHashes: [],
       staffDuty: {},
       orderCounter: 1000,
+      flashDrop: null,
     };
   }
 }

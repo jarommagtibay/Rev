@@ -329,7 +329,8 @@ function buildStaffHelpEmbed() {
           `• \`/${c.shop} <open|close> [reason]\` — Open or close the shop (posts banner & pings ping role)\n` +
           `• \`/${c.publicstock}\` — Post or refresh the live public Robux stock board in \`#stock\`\n` +
           `• \`/${c.buy}\` — Post the main Buy panel with game buttons and Roblox in \`#buy\`\n` +
-          `• \`/${c.prices} [game] [public:true/false]\` — View price catalog or post it publicly`,
+          `• \`/${c.prices} [game] [public:true/false]\` — View price catalog or post it publicly\n` +
+          '• `/flashdrop <start|stop|status>` — Launch or manage limited-time flash sales in `#daily-sale`',
       },
       {
         name: '🎫  Inside Tickets: Order Workflow',
