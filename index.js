@@ -297,7 +297,7 @@ client.on(Events.MessageCreate, async (message) => {
                       .setColor(0xff3333)
                       .setTitle('⚠️ WARNING: Failed / Unprocessed Transaction Detected!')
                       .setDescription(
-                        `A screenshot showing an **unsuccessful / failed transfer** was posted in <#${message.channel.id}>!\n\n` +
+                        `A screenshot showing an **unsuccessful / failed transfer** was posted in **#${message.channel.name}** (<#${message.channel.id}>)!\n\n` +
                         `• **Status:** ❌ **"Unable to Send Money" / Transaction Incomplete**\n` +
                         `• **Bank / App:** ${scanResult.provider}\n` +
                         `• **Ref No:** ${scanResult.refNo ? `\`${scanResult.refNo}\` *(tap to copy)*` : '*Not detected*'}\n` +
@@ -346,7 +346,7 @@ client.on(Events.MessageCreate, async (message) => {
                       .setTitle('🚨 FRAUD WARNING: Reused Payment Receipt!')
                       .setDescription(
                         `A receipt screenshot that was **previously uploaded in another ticket** was just posted!\n\n` +
-                        `• **Current Ticket:** <#${message.channel.id}>\n` +
+                        `• **Current Ticket:** #${message.channel.name} (<#${message.channel.id}>)\n` +
                         `• **Current User:** <@${message.author.id}> (@${message.author.username})\n` +
                         `• **Previously Used In:** #${previous.channelName || previous.channelId}\n` +
                         `• **Previously Uploaded By:** <@${previous.userId}> (@${previous.username})\n` +
@@ -405,13 +405,13 @@ client.on(Events.MessageCreate, async (message) => {
                   .setColor(0x00b0f4)
                   .setTitle(`🧾  Receipt Scanned: #${message.channel.name}`)
                   .setDescription(
-                    `A payment screenshot was submitted in <#${message.channel.id}>:\n\n` +
+                    `A payment screenshot was submitted in **#${message.channel.name}** (<#${message.channel.id}>):\n\n` +
                     `• **Bank / App:** ${scanResult.provider}\n` +
                     `• **Ref No:** ${refDisplay}\n` +
                     `• **Amount:** ${amountDisplay}\n` +
                     `• **Duplicate Check:** ✅ **Unique Receipt** (First time seen)\n` +
                     `• **Customer:** <@${message.author.id}> (\`${message.author.id}\`)\n` +
-                    `• **Ticket Channel:** <#${message.channel.id}>\n` +
+                    `• **Ticket Channel:** #${message.channel.name} (<#${message.channel.id}>)\n` +
                     `• **Uploaded:** <t:${Math.floor(Date.now() / 1000)}:R>`
                   )
                   .setThumbnail(imgAttachment.url)

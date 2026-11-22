@@ -20,15 +20,16 @@ function findReferenceNumber(text) {
   // Clean OCR noise while preserving numbers and dashes
   const clean = text.replace(/[\r\n]+/g, ' ');
 
-  // 1. Explicit labeled reference with letters/numbers/dashes:
-  // e.g. "Reference no. BN-20261120-73005435", "Ref No. 1002 8492 1038", "Reference ID: ABCD-1234-EF56"
-  const labeled = clean.match(
-    /(?:ref(?:erence)?\.?\s*(?:no\.?|id|number)?[:\s]+)([A-Z0-9]{2,8}[-_\s]?[A-Z0-9]{4,14}(?:[-_\s]?[A-Z0-9]{4,12})?)\b/i
+  // 1. Explicit labeled numeric reference:
+  // e.g. "Ref No. 1047 553 476926", "Ref. No: 1002 8492 1038", "Reference No. 1047 553 476926"
+  const labeledNumeric = clean.match(
+    /(?:ref(?:erence)?\.?\s*(?:no\.?|id|number)?[:.\s]+)((?:\d[\s-]?){9,15}\d)\b/i
   );
-  if (labeled) {
-    const raw = labeled[1].trim();
-    if (raw.length >= 8 && raw.length <= 32) {
-      return raw;
+  if (labeledNumeric) {
+    const raw = labeledNumeric[1].trim();
+    const digits = raw.replace(/[\s-]/g, '');
+    if (digits.length >= 10 && digits.length <= 16) {
+      return raw.replace(/\s+/g, ' ');
     }
   }
 
@@ -38,10 +39,12 @@ function findReferenceNumber(text) {
     return bankPrefix[1].toUpperCase();
   }
 
-  // 3. Spaced digits (GCash): "1002 8492 1038" or "0001 2345 6789"
-  const spacedDigits = clean.match(/\b(\d{4}\s\d{4}\s\d{4,5})\b/);
-  if (spacedDigits) {
-    return spacedDigits[1];
+  // 3. Explicit labeled alphanumeric reference (e.g. BDO, Maya, Bank)
+  const labeledAlpha = clean.match(
+    /(?:ref(?:erence)?\.?\s*(?:no\.?|id|number)?[:.\s]+)([A-Z0-9_-]{8,32})\b/i
+  );
+  if (labeledAlpha) {
+    return labeledAlpha[1].trim();
   }
 
   // 4. Maya 4-4-4: "ABCD-1234-EF56"
@@ -50,11 +53,30 @@ function findReferenceNumber(text) {
     return maya[1].toUpperCase();
   }
 
-  // 5. Continuous 12-14 digits starting with standard GCash prefixes (100x or 000x)
-  const continuousDigits = clean.match(/\b(100\d{9,11}|00\d{10,12}|\d{12,13})\b/);
+  // 5. Standalone spaced digits (GCash 12-14 digits):
+  // 13 digits (4-3-6): "1047 553 476926"
+  // 12 digits (4-4-4): "1002 8492 1038"
+  // 13 digits (4-3-3-3): "1002 849 210 381"
+  const spacedMatch = clean.match(/\b(\d{4}(?:\s+\d{2,7}){2,3})\b/);
+  if (spacedMatch) {
+    const raw = spacedMatch[1].trim();
+    const digits = raw.replace(/\s+/g, '');
+    // Ignore 11-digit mobile numbers starting with 09
+    if (digits.length >= 10 && digits.length <= 16 && !(digits.length === 11 && digits.startsWith('09'))) {
+      return raw.replace(/\s+/g, ' ');
+    }
+  }
+
+  // 6. Continuous 12-14 digits starting with standard GCash prefixes (10x or 00x)
+  const continuousDigits = clean.match(/\b(10\d{10,12}|00\d{10,12}|\d{12,14})\b/);
   if (continuousDigits) {
     const raw = continuousDigits[1];
-    return raw.replace(/(\d{4})(\d{4})(\d{4,5})/, '$1 $2 $3');
+    if (raw.length === 13) {
+      return `${raw.slice(0, 4)} ${raw.slice(4, 7)} ${raw.slice(7)}`;
+    } else if (raw.length === 12) {
+      return `${raw.slice(0, 4)} ${raw.slice(4, 8)} ${raw.slice(8)}`;
+    }
+    return raw;
   }
 
   return null;
