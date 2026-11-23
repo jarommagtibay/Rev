@@ -11,6 +11,7 @@ const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL, isStaff } = require('./core/helpers');
 const { extractReceiptDetails } = require('./core/receiptScanner');
+const { checkUnvouchedInterval } = require('./core/unvouched');
 
 // Fail fast if critical config is missing
 const required = { TOKEN, CLIENT_ID, GUILD_ID, STAFF_ROLE_ID };
@@ -163,6 +164,12 @@ client.once(Events.ClientReady, async (c) => {
       console.error('Error during ticket inactivity check:', err);
     }
   }, 30 * 60 * 1000);
+
+  // Unvouched buyer 24-hour penalty interval check (runs immediately & every 15 minutes)
+  checkUnvouchedInterval(client).catch((err) => console.error('Initial unvouched check failed:', err));
+  setInterval(() => {
+    checkUnvouchedInterval(client).catch((err) => console.error('Periodic unvouched check failed:', err));
+  }, 15 * 60 * 1000);
 });
 
 // If a ticket channel is deleted (closed or manually), remove it from the queue

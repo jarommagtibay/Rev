@@ -32,6 +32,7 @@ const {
   ticketRows,
   vouchRow,
 } = require('./ticket');
+const { addUnvouchedBuyer } = require('./unvouched');
 const { refreshQueue, removeFromQueue } = require('./queue');
 const { checkStockAlerts } = require('../features/stock');
 
@@ -163,7 +164,7 @@ async function markSentUnlocked(message, channel, guild, user, proof) {
       const durationMins = (entry.sentAt - entry.paidAt) / (1000 * 60);
       recordCompletionDuration(durationMins);
     }
-    recordCompletedOrder({
+    const loggedOrderId = recordCompletedOrder({
       orderId: entry.orderId,
       channelId: channel.id,
       userId: entry.userId,
@@ -178,6 +179,7 @@ async function markSentUnlocked(message, channel, guild, user, proof) {
       sentAt: entry.sentAt,
       paidAt: entry.paidAt,
     });
+    addUnvouchedBuyer(entry.userId, entry.username, entry.orderId || loggedOrderId, channel.id);
   }
   removeFromQueue(channel.id);
   recordStaffAction(user.id, user.username, 'sent');

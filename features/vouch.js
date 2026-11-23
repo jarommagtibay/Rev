@@ -14,6 +14,7 @@ const { COLOR, VOUCH_CHANNEL_ID } = require('../config');
 const client = require('../core/client');
 const M = require('../messages');
 const { data, saveData, recordStaffAction } = require('../core/data');
+const { clearUnvouchedBuyer } = require('../core/unvouched');
 const {
   EPHEMERAL,
   ticketMessage,
@@ -294,6 +295,9 @@ async function postVouch(interaction) {
     );
   }
 
+  // Clear unvouched penalty immediately if they were tracked as unvouched
+  await clearUnvouchedBuyer(interaction.guild, interaction.user.id).catch(console.error);
+
   // Remove the Vouch button from the bottom message
   if (fromMessage) {
     await interaction.editReply({ components: [] });
@@ -306,6 +310,113 @@ async function postVouch(interaction) {
   }
 }
 
+// Unlock button handler: shown when an unvouched customer is blocked or pinged in 24h
+async function vouchUnlockButton(interaction) {
+  const parts = interaction.customId.split(':');
+  const targetUserId = parts[1];
+  const orderId = parts[2] || 'REV-XXXX';
+
+  if (targetUserId && interaction.user.id !== targetUserId) {
+    return interaction.reply({
+      content: `This vouch unlock button is only for <@${targetUserId}>.`,
+      flags: EPHEMERAL,
+    });
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId(`vouch_unlock_form:${orderId}`)
+    .setTitle(`Vouch for Order #${orderId}`.slice(0, 45));
+
+  const messageInput = new TextInputBuilder()
+    .setCustomId('vouch_message')
+    .setLabel('Your vouch / feedback')
+    .setPlaceholder('e.g. Fast, smooth transaction and trusted! Thank you!')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMaxLength(500);
+
+  const ratingInput = new TextInputBuilder()
+    .setCustomId('vouch_rating')
+    .setLabel('Rating from 1 to 5 (optional)')
+    .setPlaceholder('5')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(1);
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(messageInput),
+    new ActionRowBuilder().addComponents(ratingInput)
+  );
+
+  return interaction.showModal(modal);
+}
+
+// Unlock modal submitted -> post vouch, clear @Unvouched Buyer role, unblock customer
+async function vouchUnlockForm(interaction) {
+  const orderId = interaction.customId.split(':')[1] || 'REV-XXXX';
+  const vouchText = interaction.fields.getTextInputValue('vouch_message').trim();
+  const ratingText = interaction.fields.getTextInputValue('vouch_rating').trim();
+
+  if (ratingText && !/^[1-5]$/.test(ratingText)) {
+    return interaction.reply({
+      content: 'Rating must be a number from 1 to 5. Please try again.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  await interaction.deferReply({ flags: EPHEMERAL });
+
+  const vouchEmbed = new EmbedBuilder()
+    .setTitle('New Vouch')
+    .setColor(COLOR)
+    .setDescription(vouchText)
+    .setThumbnail(interaction.user.displayAvatarURL())
+    .addFields(
+      { name: 'Customer', value: `${interaction.user}`, inline: true },
+      { name: 'Order ID', value: `#${orderId}`, inline: true }
+    )
+    .setTimestamp();
+
+  if (ratingText) {
+    vouchEmbed.addFields({
+      name: 'Rating',
+      value: '⭐'.repeat(Number(ratingText)),
+      inline: true,
+    });
+  }
+
+  if (VOUCH_CHANNEL_ID) {
+    try {
+      const vouchChannel = await client.channels.fetch(VOUCH_CHANNEL_ID).catch(() => null);
+      if (vouchChannel) {
+        await vouchChannel.send({ embeds: [vouchEmbed] });
+      }
+    } catch (err) {
+      console.error('Could not post vouch from unlock modal:', err);
+    }
+  }
+
+  data.totalVouches = (data.totalVouches || 0) + 1;
+  saveData();
+
+  await clearUnvouchedBuyer(interaction.guild, interaction.user.id);
+
+  return interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x00ff88)
+        .setTitle('✅  Penalty Removed & Ordering Unlocked!')
+        .setDescription(
+          `Thank you for your review, <@${interaction.user.id}>!\n\n` +
+          `• Your vouch for order **#${orderId}** was posted in <#${VOUCH_CHANNEL_ID}>.\n` +
+          `• The **@Unvouched Buyer** role has been removed from your profile.\n` +
+          `• Your account is now fully unlocked and you may place new orders anytime!`
+        )
+        .setTimestamp(),
+    ],
+  });
+}
+
 async function handle(interaction) {
   if (interaction.isButton() && interaction.customId.startsWith('vouch:')) {
     await vouchButton(interaction);
@@ -314,6 +425,16 @@ async function handle(interaction) {
 
   if (interaction.isModalSubmit() && interaction.customId.startsWith('vouch_form:')) {
     await vouchForm(interaction);
+    return true;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith('vouch_unlock:')) {
+    await vouchUnlockButton(interaction);
+    return true;
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId.startsWith('vouch_unlock_form:')) {
+    await vouchUnlockForm(interaction);
     return true;
   }
 

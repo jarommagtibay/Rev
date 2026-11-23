@@ -23,6 +23,7 @@ const { logTicketCreated } = require('../core/audit');
 const { applyPromoDiscount } = require('./promo');
 const { getRobloxProfile } = require('../core/roblox');
 const { areAllStaffOffDuty, getOffDutyNote } = require('./duty');
+const { hasUnvouchedBuyer, getUnvouchedBuyer, buildUnvouchedBlockEmbed } = require('../core/unvouched');
 
 const commands = [];
 
@@ -40,6 +41,14 @@ function stockBlockMessage() {
 
 // Buy button -> ask how they want to order (Robux amount or price)
 async function showChoice(interaction) {
+  if (hasUnvouchedBuyer(interaction.user.id)) {
+    const buyer = getUnvouchedBuyer(interaction.user.id);
+    return interaction.reply({
+      ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
   if (isBlacklisted(interaction.user.id)) {
     const entry = (data.blacklist || []).find((b) => b.userId === interaction.user.id);
     const reason = entry && entry.reason ? `\nReason: **${entry.reason}**` : '';
@@ -83,6 +92,14 @@ async function showChoice(interaction) {
 
 // Choice button -> show the form for the chosen option
 async function showForm(interaction) {
+  if (hasUnvouchedBuyer(interaction.user.id)) {
+    const buyer = getUnvouchedBuyer(interaction.user.id);
+    return interaction.reply({
+      ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
   if (!data.shopOpen) {
     return interaction.reply({ content: SHOP_CLOSED_TEXT, flags: EPHEMERAL });
   }
@@ -154,6 +171,14 @@ async function showForm(interaction) {
 
 // Order form submitted -> create the private ticket channel + join the queue
 async function createTicket(interaction) {
+  if (hasUnvouchedBuyer(interaction.user.id)) {
+    const buyer = getUnvouchedBuyer(interaction.user.id);
+    return interaction.reply({
+      ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
   // The shop may have been closed while the customer was filling in the form
   if (!data.shopOpen) {
     return interaction.reply({ content: SHOP_CLOSED_TEXT, flags: EPHEMERAL });

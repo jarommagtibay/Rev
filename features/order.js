@@ -38,6 +38,7 @@ const {
 } = require('../core/ticket');
 const { refreshQueue, removeFromQueue, availableStock, notEnoughStockMessage } = require('../core/queue');
 const { updateTicketLogOrder, updateTicketLogGameOrder } = require('../core/audit');
+const { addUnvouchedBuyer } = require('../core/unvouched');
 const {
   syncOrderAmount,
   markProcessing,
@@ -448,9 +449,11 @@ async function completeOrder(interaction) {
     removeFromQueue(interaction.channel.id);
 
     // Record order in completion log and credit staff
-    recordCompletedOrder({
+    const custId = (entry && entry.userId) || getCustomerId(interaction.channel);
+    const completedOrderId = recordCompletedOrder({
+      orderId: (entry && entry.orderId),
       channelId: interaction.channel.id,
-      userId: (entry && entry.userId) || getCustomerId(interaction.channel),
+      userId: custId,
       type: isRobuxOrder(embed) ? 'robux' : 'game',
       amount: amount || 0,
       price: (entry && entry.price) || 0,
@@ -462,6 +465,7 @@ async function completeOrder(interaction) {
       sentAt: Date.now(),
       paidAt: (entry && entry.paidAt) || Date.now(),
     });
+    addUnvouchedBuyer(custId, (entry && entry.username) || '', (entry && entry.orderId) || completedOrderId, interaction.channel.id);
     recordStaffAction(interaction.user.id, interaction.user.username, 'completed');
   }
 

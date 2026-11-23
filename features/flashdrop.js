@@ -40,6 +40,7 @@ const {
   createTicketChannel,
   sendPaymentMessage,
 } = require('../core/ticket');
+const { hasUnvouchedBuyer, getUnvouchedBuyer, buildUnvouchedBlockEmbed } = require('../core/unvouched');
 const { availableStock, notEnoughStockMessage } = require('../core/queue');
 const { logTicketCreated } = require('../core/audit');
 const { getRobloxProfile } = require('../core/roblox');
@@ -381,6 +382,14 @@ async function handleStatus(interaction) {
 
 // Claim button handler
 async function handleClaimButton(interaction) {
+  if (hasUnvouchedBuyer(interaction.user.id)) {
+    const buyer = getUnvouchedBuyer(interaction.user.id);
+    return interaction.reply({
+      ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
   if (isBlacklisted(interaction.user.id)) {
     return interaction.reply({
       content: 'You are blocked from opening tickets.',
@@ -446,6 +455,14 @@ async function handleClaimButton(interaction) {
 
 // Modal submission handler
 async function handleModalSubmit(interaction) {
+  if (hasUnvouchedBuyer(interaction.user.id)) {
+    const buyer = getUnvouchedBuyer(interaction.user.id);
+    return interaction.reply({
+      ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
   const fd = data.flashDrop;
   if (!fd || !fd.active || Date.now() >= fd.endsAt || fd.stock <= 0) {
     return interaction.reply({

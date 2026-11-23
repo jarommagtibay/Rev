@@ -24,6 +24,7 @@ const { refreshQueue } = require('../core/queue');
 const { logTicketCreated } = require('../core/audit');
 const { applyPromoDiscount } = require('./promo');
 const { areAllStaffOffDuty, getOffDutyNote } = require('./duty');
+const { hasUnvouchedBuyer, getUnvouchedBuyer, buildUnvouchedBlockEmbed } = require('../core/unvouched');
 
 const commands = [];
 
@@ -41,6 +42,14 @@ function blockReason(interaction, game, key) {
 
 // Game button -> dropdown with the packages
 async function showPackages(interaction) {
+  if (hasUnvouchedBuyer(interaction.user.id)) {
+    const buyer = getUnvouchedBuyer(interaction.user.id);
+    return interaction.reply({
+      ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
   const key = interaction.customId.split(':')[1];
   const game = GAMES[key];
   if (!game) {
@@ -71,6 +80,14 @@ async function showPackages(interaction) {
 
 // Package picked -> ID form
 async function showForm(interaction) {
+  if (hasUnvouchedBuyer(interaction.user.id)) {
+    const buyer = getUnvouchedBuyer(interaction.user.id);
+    return interaction.reply({
+      ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
   const key = interaction.customId.split(':')[1];
   const game = GAMES[key];
   const index = Number(interaction.values[0]);
@@ -123,6 +140,14 @@ async function showForm(interaction) {
 
 // Form submitted -> create the private ticket + join the queue
 async function createTicket(interaction) {
+  if (hasUnvouchedBuyer(interaction.user.id)) {
+    const buyer = getUnvouchedBuyer(interaction.user.id);
+    return interaction.reply({
+      ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
   const [, key, indexText] = interaction.customId.split(':');
   const game = GAMES[key];
   const pkg = game && game.packages[Number(indexText)];
