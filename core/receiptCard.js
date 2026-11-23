@@ -1,5 +1,5 @@
 // Digital Graphic Receipt Generator
-// Generates a sleek, high-resolution visual PNG invoice receipt for completed orders.
+// Generates a clean, minimalist red-themed PNG receipt card for completed orders.
 // Uses @napi-rs/canvas if available, and gracefully falls back to Discord Embed if canvas is not installed.
 const crypto = require('crypto');
 const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
@@ -35,8 +35,16 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+// Truncate text to fit within a given pixel width
+function fitText(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let t = text;
+  while (t.length > 0 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
+  return t + '…';
+}
+
 /**
- * Generates an aesthetic PNG digital receipt card.
+ * Generates a minimalist red-themed PNG receipt card.
  * @param {Object} order
  * @param {string} order.orderId
  * @param {string} order.customerName
@@ -79,226 +87,180 @@ async function generateReceiptCard(order) {
   // If Canvas is available, draw the graphic receipt
   if (createCanvas) {
     try {
-      const width = 850;
-      const height = 480;
-      const canvas = createCanvas(width, height);
+      // ── Layout constants ──
+      const W = 780;
+      const H = 420;
+      const PAD = 32;
+      const canvas = createCanvas(W, H);
       const ctx = canvas.getContext('2d');
 
-      // 1. Base Background with sleek dark gradient
-      const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-      bgGrad.addColorStop(0, '#15161a');
-      bgGrad.addColorStop(0.5, '#111215');
-      bgGrad.addColorStop(1, '#0c0d10');
-      roundRect(ctx, 0, 0, width, height, 16);
-      ctx.fillStyle = bgGrad;
+      // ── Colour palette (red theme, minimalist) ──
+      const BG        = '#0d0d0d';
+      const CARD_BG   = '#141414';
+      const RED        = '#c8102e';
+      const RED_LIGHT  = '#e63946';
+      const RED_DIM    = '#3a0a10';
+      const WHITE      = '#f5f5f5';
+      const GREY       = '#8a8a8a';
+      const GREY_DIM   = '#3a3a3a';
+      const GREEN      = '#34d399';
+      const GREEN_DIM  = '#0d2818';
+
+      // ── Background ──
+      ctx.fillStyle = BG;
+      roundRect(ctx, 0, 0, W, H, 14);
       ctx.fill();
 
-      // Outer Glowing Border
-      roundRect(ctx, 2, 2, width - 4, height - 4, 16);
-      ctx.strokeStyle = '#94030f';
-      ctx.lineWidth = 3;
-      ctx.stroke();
+      // Thin red accent line across the very top
+      ctx.fillStyle = RED;
+      ctx.fillRect(0, 0, W, 3);
 
-      // 2. Top Header Accent Line
-      const accentGrad = ctx.createLinearGradient(20, 0, width - 20, 0);
-      accentGrad.addColorStop(0, '#94030f');
-      accentGrad.addColorStop(0.5, '#ff4655');
-      accentGrad.addColorStop(1, '#f59e0b');
-      ctx.fillStyle = accentGrad;
-      ctx.fillRect(20, 16, width - 40, 3);
-
-      // Header Brand Text
-      ctx.font = 'bold 13px sans-serif';
-      ctx.fillStyle = '#a1a1aa';
-      ctx.fillText('REVÉUX  •  OFFICIAL TRANSACTION RECEIPT', 24, 38);
-
-      // Holographic Stamp: [ ✔ PAID & VERIFIED ]
-      const stampX = width - 180;
-      const stampY = 24;
-      roundRect(ctx, stampX, stampY, 156, 26, 13);
-      ctx.fillStyle = '#0f291e';
+      // ── Inner card ──
+      roundRect(ctx, PAD - 8, 24, W - (PAD - 8) * 2, H - 48, 10);
+      ctx.fillStyle = CARD_BG;
       ctx.fill();
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
 
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillStyle = '#4ade80';
-      ctx.fillText('✔ PAID & VERIFIED', stampX + 16, stampY + 17);
+      // ═══════════════════════════════════════════
+      //  HEADER ROW: Brand + Verified Badge
+      // ═══════════════════════════════════════════
+      const headerY = 46;
 
-      // Order ID & Date
-      ctx.font = 'bold 26px sans-serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(`ORDER #${orderId}`, 24, 82);
-
-      ctx.font = '13px sans-serif';
-      ctx.fillStyle = '#71717a';
-      ctx.fillText(`Issued on: ${dateStr}`, width - 240, 80);
-
-      // Divider line
-      ctx.strokeStyle = '#27272a';
-      ctx.lineWidth = 1;
+      // "R" logo circle
       ctx.beginPath();
-      ctx.moveTo(24, 96);
-      ctx.lineTo(width - 24, 96);
-      ctx.stroke();
-
-      // 3. Left Panel: Customer Information
-      const panelY = 112;
-      const panelW = 385;
-      const panelH = 260;
-
-      roundRect(ctx, 24, panelY, panelW, panelH, 12);
-      ctx.fillStyle = '#18191e';
+      ctx.arc(PAD + 14, headerY + 8, 14, 0, Math.PI * 2);
+      ctx.fillStyle = RED;
       ctx.fill();
-      ctx.strokeStyle = '#27272a';
-      ctx.lineWidth = 1;
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillStyle = WHITE;
+      ctx.textAlign = 'center';
+      ctx.fillText('R', PAD + 14, headerY + 14);
+      ctx.textAlign = 'left';
+
+      // Brand name
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillStyle = WHITE;
+      ctx.fillText('REVÉUX', PAD + 36, headerY + 4);
+
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = GREY;
+      ctx.fillText('OFFICIAL RECEIPT', PAD + 36, headerY + 18);
+
+      // Verified pill (right side)
+      const pillText = 'VERIFIED';
+      ctx.font = 'bold 10px sans-serif';
+      const pillW = ctx.measureText(pillText).width + 26;
+      const pillX = W - PAD - pillW;
+      roundRect(ctx, pillX, headerY - 4, pillW, 22, 11);
+      ctx.fillStyle = GREEN_DIM;
+      ctx.fill();
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = GREEN;
+      ctx.fillText('✓ ' + pillText, pillX + 8, headerY + 10);
+
+      // ── Thin divider ──
+      const divY = headerY + 32;
+      ctx.strokeStyle = GREY_DIM;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(PAD, divY);
+      ctx.lineTo(W - PAD, divY);
       ctx.stroke();
 
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillStyle = '#71717a';
-      ctx.fillText('CUSTOMER DETAILS', 40, panelY + 28);
+      // ═══════════════════════════════════════════
+      //  ORDER ID + DATE ROW
+      // ═══════════════════════════════════════════
+      const orderRowY = divY + 22;
 
-      // Try loading avatar if provided
-      let avatarLoaded = false;
-      if (order.customerAvatar && loadImage) {
-        try {
-          const img = await loadImage(order.customerAvatar);
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(65, panelY + 70, 25, 0, Math.PI * 2);
-          ctx.closePath();
-          ctx.clip();
-          ctx.drawImage(img, 40, panelY + 45, 50, 50);
-          ctx.restore();
+      ctx.font = 'bold 22px sans-serif';
+      ctx.fillStyle = WHITE;
+      ctx.fillText(`#${orderId}`, PAD, orderRowY);
 
-          ctx.beginPath();
-          ctx.arc(65, panelY + 70, 25, 0, Math.PI * 2);
-          ctx.strokeStyle = '#ff4655';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          avatarLoaded = true;
-        } catch {
-          avatarLoaded = false;
-        }
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = GREY;
+      ctx.textAlign = 'right';
+      ctx.fillText(dateStr, W - PAD, orderRowY);
+      ctx.textAlign = 'left';
+
+      // ═══════════════════════════════════════════
+      //  MAIN INFO GRID: 2 columns
+      // ═══════════════════════════════════════════
+      const gridY = orderRowY + 24;
+      const colW = (W - PAD * 2 - 24) / 2;
+      const leftX = PAD;
+      const rightX = PAD + colW + 24;
+
+      // ── Helper to draw a label + value pair ──
+      function drawField(x, y, label, value, valueColor = WHITE) {
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = GREY;
+        ctx.fillText(label, x, y);
+        ctx.font = 'bold 13px sans-serif';
+        ctx.fillStyle = valueColor;
+        const truncVal = fitText(ctx, String(value).replace(/```\n?/g, '').trim(), colW - 8);
+        ctx.fillText(truncVal, x, y + 16);
+        return 40; // row height
       }
 
-      if (!avatarLoaded) {
-        // Fallback Initial Avatar Circle
-        ctx.beginPath();
-        ctx.arc(65, panelY + 70, 25, 0, Math.PI * 2);
-        ctx.fillStyle = '#94030f';
-        ctx.fill();
-        ctx.font = 'bold 20px sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText(customerName.charAt(0).toUpperCase(), 65, panelY + 77);
-        ctx.textAlign = 'left';
-      }
+      // Left column
+      let ly = gridY;
+      ly += drawField(leftX, ly, 'CUSTOMER', `@${customerName}`);
+      ly += drawField(leftX, ly, 'ACCOUNT', accountInfo);
+      ly += drawField(leftX, ly, 'FULFILLED BY', `@${staffName}`);
 
-      // Customer name and ID
-      ctx.font = 'bold 17px sans-serif';
-      ctx.fillStyle = '#f4f4f5';
-      ctx.fillText(customerName, 104, panelY + 66);
+      // Right column
+      let ry = gridY;
+      ry += drawField(rightX, ry, 'PRODUCT', productName);
+      ry += drawField(rightX, ry, 'CATEGORY', gameName);
+      ry += drawField(rightX, ry, 'PAYMENT', 'GCash / Maya');
 
-      ctx.font = '12px monospace';
-      ctx.fillStyle = '#71717a';
-      ctx.fillText(`ID: ${customerId}`, 104, panelY + 84);
-
-      // In-game Account / Username
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillStyle = '#a1a1aa';
-      ctx.fillText('IN-GAME ACCOUNT / ID:', 40, panelY + 128);
-
-      roundRect(ctx, 40, panelY + 136, panelW - 32, 34, 6);
-      ctx.fillStyle = '#111215';
+      // ═══════════════════════════════════════════
+      //  TOTAL AMOUNT BOX
+      // ═══════════════════════════════════════════
+      const totalBoxY = Math.max(ly, ry) + 8;
+      const totalBoxH = 60;
+      roundRect(ctx, PAD, totalBoxY, W - PAD * 2, totalBoxH, 8);
+      ctx.fillStyle = RED_DIM;
       ctx.fill();
-      ctx.font = 'bold 14px monospace';
-      ctx.fillStyle = '#ffffff';
-      const cleanAccount = String(accountInfo).replace(/```\n?/g, '').trim();
-      ctx.fillText(cleanAccount.length > 32 ? cleanAccount.slice(0, 32) + '...' : cleanAccount, 52, panelY + 158);
 
-      // Payment Info
+      // Left side of box: label
       ctx.font = 'bold 11px sans-serif';
-      ctx.fillStyle = '#a1a1aa';
-      ctx.fillText('PAYMENT METHOD:', 40, panelY + 196);
-      ctx.font = 'bold 13px sans-serif';
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillText('GCash / Maya Transfer (Verified)', 40, panelY + 214);
+      ctx.fillStyle = RED_LIGHT;
+      ctx.fillText('TOTAL AMOUNT', PAD + 16, totalBoxY + 24);
 
-      // Fulfillment
-      ctx.font = '12px sans-serif';
-      ctx.fillStyle = '#949ba4';
-      ctx.fillText(`Fulfilled by: @${staffName}`, 40, panelY + 242);
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = GREY;
+      ctx.fillText('All fees included', PAD + 16, totalBoxY + 42);
 
-      // 4. Right Panel: Order Breakdown & Total Price
-      const rightX = 435;
-      roundRect(ctx, rightX, panelY, panelW, panelH, 12);
-      ctx.fillStyle = '#18191e';
-      ctx.fill();
-      ctx.strokeStyle = '#27272a';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      // Right side of box: price
+      ctx.font = 'bold 28px sans-serif';
+      ctx.fillStyle = WHITE;
+      ctx.textAlign = 'right';
+      ctx.fillText(priceText, W - PAD - 16, totalBoxY + 40);
+      ctx.textAlign = 'left';
 
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillStyle = '#71717a';
-      ctx.fillText('PURCHASE BREAKDOWN', rightX + 16, panelY + 28);
+      // ═══════════════════════════════════════════
+      //  FOOTER: auth code + thank you
+      // ═══════════════════════════════════════════
+      const footerY = totalBoxY + totalBoxH + 18;
 
-      // Product Item
-      ctx.font = 'bold 19px sans-serif';
-      ctx.fillStyle = '#ffffff';
-      const truncProd = productName.length > 28 ? productName.slice(0, 28) + '...' : productName;
-      ctx.fillText(truncProd, rightX + 16, panelY + 64);
-
-      ctx.font = '13px sans-serif';
-      ctx.fillStyle = '#949ba4';
-      ctx.fillText(`Category: ${gameName}`, rightX + 16, panelY + 86);
-
-      // Inset Total Box
-      const totalBoxY = panelY + 112;
-      roundRect(ctx, rightX + 16, totalBoxY, panelW - 32, 90, 10);
-      ctx.fillStyle = '#101114';
-      ctx.fill();
-      ctx.strokeStyle = '#94030f';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillStyle = '#ff6b6b';
-      ctx.fillText('TOTAL AMOUNT PAID', rightX + 32, totalBoxY + 30);
-
-      ctx.font = 'bold 34px sans-serif';
-      ctx.fillStyle = '#22c55e';
-      ctx.fillText(priceText, rightX + 32, totalBoxY + 70);
-
-      // Barcode simulation on bottom of right panel
-      const barcodeX = rightX + 16;
-      const barcodeY = panelY + 218;
-      const barcodeWidths = [2, 1, 3, 1, 2, 4, 1, 2, 1, 3, 2, 1, 4, 2, 1, 3, 1, 2, 3, 1, 2, 4, 1, 3, 2, 1, 4, 1, 2, 3, 2, 1, 4, 2, 1, 3];
-      let curBx = barcodeX;
-      ctx.fillStyle = '#71717a';
-      for (const w of barcodeWidths) {
-        ctx.fillRect(curBx, barcodeY, w, 24);
-        curBx += w + 2;
-      }
       ctx.font = '10px monospace';
-      ctx.fillStyle = '#71717a';
-      ctx.fillText(`REF-${authCode}`, curBx + 12, barcodeY + 17);
+      ctx.fillStyle = GREY_DIM;
+      ctx.fillText(`REF ${authCode}`, PAD, footerY);
 
-      // 5. Bottom Footer Note
-      ctx.font = 'italic 11px sans-serif';
-      ctx.fillStyle = '#52525b';
-      ctx.fillText('Thank you for choosing Revéux Shop! Keep this receipt for your records & warranty.', 24, height - 24);
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = GREY_DIM;
+      ctx.textAlign = 'right';
+      ctx.fillText('Thank you for choosing Revéux ♥', W - PAD, footerY);
+      ctx.textAlign = 'left';
 
+      // ── Render ──
       const buffer = canvas.toBuffer('image/png');
       const attachment = new AttachmentBuilder(buffer, { name: `receipt-${orderId}.png` });
 
       const embed = new EmbedBuilder()
-        .setColor(COLOR)
-        .setTitle(`🧾  Official Receipt: #${orderId}`)
-        .setDescription(`**${customerName}**, thank you for ordering with **Revéux Shop**!\nHere is your official digital invoice:`)
+        .setColor(0xc8102e)
         .setImage(`attachment://receipt-${orderId}.png`)
-        .setFooter({ text: `Order #${orderId} • Fulfilled by @${staffName}` })
+        .setFooter({ text: `Revéux Shop • Official Receipt '${orderId}'` })
         .setTimestamp(timestamp);
 
       return { attachment, embed };
@@ -307,28 +269,26 @@ async function generateReceiptCard(order) {
     }
   }
 
-  // Fallback: Rich Discord Embed with ASCII receipt formatting
+  // Fallback: Rich Discord Embed with clean receipt formatting
   const embed = new EmbedBuilder()
-    .setColor(COLOR)
-    .setTitle(`🧾  Official Receipt: #${orderId}`)
+    .setColor(0xc8102e)
+    .setTitle(`🧾  Receipt #${orderId}`)
     .setDescription(
       `\`\`\`\n` +
-      `==========================================\n` +
-      `         REVÉUX GAMING SHOP RECEIPT       \n` +
-      `==========================================\n` +
-      `ORDER ID:     #${orderId}\n` +
-      `DATE:         ${dateStr}\n` +
-      `CUSTOMER:     @${customerName}\n` +
-      `PRODUCT:      ${productName}\n` +
-      `ACCOUNT:      ${accountInfo}\n` +
-      `TOTAL PAID:   ${priceText}\n` +
-      `STATUS:       [ ✔ PAID & VERIFIED ]\n` +
-      `STAFF:        @${staffName}\n` +
-      `AUTH CODE:    REF-${authCode}\n` +
-      `==========================================\n` +
+      `  REVÉUX  ·  OFFICIAL RECEIPT\n` +
+      `─────────────────────────────────\n` +
+      `  ORDER       #${orderId}\n` +
+      `  DATE        ${dateStr}\n` +
+      `  CUSTOMER    @${customerName}\n` +
+      `  PRODUCT     ${productName}\n` +
+      `  ACCOUNT     ${accountInfo}\n` +
+      `  TOTAL       ${priceText}\n` +
+      `  STAFF       @${staffName}\n` +
+      `─────────────────────────────────\n` +
+      `  ✓ PAID & VERIFIED  REF ${authCode}\n` +
       `\`\`\``
     )
-    .setFooter({ text: `Order #${orderId} • Reveux Shop` })
+    .setFooter({ text: `Revéux Shop • Receipt #${orderId}` })
     .setTimestamp(timestamp);
 
   return { attachment: null, embed };
