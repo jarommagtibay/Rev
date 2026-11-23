@@ -149,7 +149,7 @@ async function postReceipt(embed, ticketChannel) {
     const ticketName = baseName(ticketChannel.name);
 
     let productName = 'Robux';
-    let priceText = get('Price');
+    let priceText = get('Price') !== '-' ? get('Price') : get('Flash Price');
     let accountInfo = '-';
     let gameName = 'Roblox';
 

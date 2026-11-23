@@ -19,6 +19,7 @@ const {
   getCustomerId,
   baseName,
   tryLock,
+  safeRenameChannel,
 } = require('./helpers');
 const {
   orderHeadline,
@@ -195,7 +196,7 @@ async function markSentUnlocked(message, channel, guild, user, proof) {
   await message.edit({ embeds: [embed], components: ticketRows('sent') });
 
   // Rename the ticket to sent-username
-  channel.setName(`sent-${baseName(channel.name)}`).catch(() => { });
+  safeRenameChannel(channel, `sent-${baseName(channel.name)}`);
 
   // Order sent message (text inside the embed, proof picture under it),
   // then a new message at the bottom with the Vouch button

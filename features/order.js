@@ -23,6 +23,7 @@ const {
   getCustomerId,
   parseOrderAmount,
   tryLock,
+  safeRenameChannel,
 } = require('../core/helpers');
 const {
   orderHeadline,
@@ -492,10 +493,8 @@ async function completeOrder(interaction) {
   // Post the receipt in the receipt channel
   await postReceipt(embed, interaction.channel);
 
-  // Rename the finished ticket to done-username
-  interaction.channel
-    .setName(`done-${baseName(interaction.channel.name)}`)
-    .catch(() => { });
+  // Rename the finished ticket to done-username with automatic rate-limit backoff
+  safeRenameChannel(interaction.channel, `done-${baseName(interaction.channel.name)}`);
 
   const customerId = getCustomerId(interaction.channel);
 
@@ -506,7 +505,7 @@ async function completeOrder(interaction) {
     const clean = (val) => val.replace(/```\n?/g, '').trim();
     const orderIdVal = getField('Order ID').replace(/[`#]/g, '').trim();
     const accountVal = clean(getField('Account Username') || getField('Account Name') || getField('Player ID') || getField('User ID') || getField('UID') || '-');
-    const priceVal = getField('Price').split('\n')[0].trim();
+    const priceVal = (getField('Price') || getField('Flash Price') || '').split('\n')[0].trim();
     const customer = customerId ? await interaction.guild.members.fetch(customerId).catch(() => null) : null;
 
     const receiptResult = await generateReceiptCard({

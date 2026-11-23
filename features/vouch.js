@@ -22,6 +22,7 @@ const {
   baseName,
   getCustomerId,
   tryLock,
+  safeRenameChannel,
 } = require('../core/helpers');
 const {
   setPositionField,
@@ -284,9 +285,7 @@ async function postVouch(interaction) {
 
   if (!wasCompleted) {
     await postReceipt(ticketEmbed, interaction.channel);
-    interaction.channel
-      .setName(`done-${baseName(interaction.channel.name)}`)
-      .catch(() => { });
+    safeRenameChannel(interaction.channel, `done-${baseName(interaction.channel.name)}`);
     await interaction.channel.send(
       ticketMessage('thanks', {
         userId: interaction.user.id,

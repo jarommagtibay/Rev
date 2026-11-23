@@ -18,7 +18,7 @@ const {
   UNVOUCHED_CATEGORY_ID,
 } = require('../config');
 const { data, saveData } = require('./data');
-const { baseName } = require('./helpers');
+const { baseName, safeRenameChannel } = require('./helpers');
 
 /**
  * Registers an unvouched buyer upon order delivery.
@@ -172,7 +172,7 @@ async function checkUnvouchedInterval(client) {
           if (channel) {
             // Rename to unvouched-username
             const curName = baseName(channel.name);
-            await channel.setName(`unvouched-${curName}`).catch(() => {});
+            await safeRenameChannel(channel, `unvouched-${curName}`);
 
             // Move category if configured
             if (UNVOUCHED_CATEGORY_ID) {

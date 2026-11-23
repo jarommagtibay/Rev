@@ -41,7 +41,7 @@ const {
   sendPaymentMessage,
 } = require('../core/ticket');
 const { hasUnvouchedBuyer, getUnvouchedBuyer, buildUnvouchedBlockEmbed } = require('../core/unvouched');
-const { availableStock, notEnoughStockMessage } = require('../core/queue');
+const { availableStock, notEnoughStockMessage, refreshQueue } = require('../core/queue');
 const { logTicketCreated } = require('../core/audit');
 const { getRobloxProfile } = require('../core/roblox');
 const { areAllStaffOffDuty, getOffDutyNote } = require('./duty');
@@ -522,7 +522,7 @@ async function handleModalSubmit(interaction) {
       { name: 'Account Name', value: `\`\`\`\n${name}\n\`\`\``, inline: true },
       { name: 'Account Username', value: `\`\`\`\n${username}\n\`\`\``, inline: true },
       { name: 'Robux Amount', value: amount.toLocaleString(), inline: true },
-      { name: 'Flash Price', value: `${formatPeso(price)}${expressNote}`, inline: true },
+      { name: 'Price', value: `${formatPeso(price)}${expressNote}`, inline: true },
       { name: 'Queue Position', value: isExpress ? `#1 ⚡ EXPRESS` : `#${position}`, inline: true },
       {
         name: '⚡  Deal Rate',
@@ -643,6 +643,8 @@ async function handleModalSubmit(interaction) {
       { name: 'Flash Rate', value: `${CURRENCY}${fd.rate}/100 R$` },
     ],
   });
+
+  await refreshQueue(interaction.guild);
 
   return interaction.editReply({
     content: `⚡ **Flash Deal Claimed!** Your ticket has been opened: <#${channel.id}>. Please proceed there to pay!`,

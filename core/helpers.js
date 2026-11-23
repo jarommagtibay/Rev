@@ -87,6 +87,42 @@ function baseName(channelName) {
   return channelName.replace(/^(ticket|queue-\d+|sent|done|hold|unvouched)-/, '');
 }
 
+// Safely renames a channel with automatic rate-limit backoff and retry
+async function safeRenameChannel(channel, newName) {
+  if (!channel || !newName || channel.name === newName) return;
+  try {
+    await channel.setName(newName);
+  } catch (err) {
+    const isRateLimit =
+      err.status === 429 ||
+      err.code === 50035 ||
+      (err.message && err.message.toLowerCase().includes('rate limit'));
+    if (isRateLimit) {
+      const retryMs = (err.retryAfter ? Number(err.retryAfter) * 1000 : 5 * 60 * 1000) + 1500;
+      console.warn(
+        `[safeRenameChannel] Discord rate limited renaming #${channel.name} to ${newName}. Retrying in ${Math.round(
+          retryMs / 1000
+        )}s...`
+      );
+      setTimeout(async () => {
+        try {
+          const freshChannel = channel.client
+            ? await channel.client.channels.fetch(channel.id).catch(() => null)
+            : channel;
+          if (freshChannel && freshChannel.name !== newName) {
+            await freshChannel.setName(newName);
+            console.log(`[safeRenameChannel] Successfully renamed channel to ${newName} after rate-limit delay.`);
+          }
+        } catch (retryErr) {
+          console.warn(`[safeRenameChannel] Retry rename for #${channel.id} to ${newName} failed:`, retryErr.message);
+        }
+      }, Math.min(retryMs, 10 * 60 * 1000));
+    } else {
+      console.warn(`[safeRenameChannel] Could not rename channel #${channel.name} to ${newName}:`, err.message);
+    }
+  }
+}
+
 // The topic is "ticket:<userId>:<product>" (older tickets: "ticket:<userId>")
 function getCustomerId(channel) {
   return (channel.topic || '').replace('ticket:', '').split(':')[0];
@@ -173,4 +209,5 @@ module.exports = {
   findOpenTickets,
   ticketLimitMessage,
   parseOrderAmount,
+  safeRenameChannel,
 };
