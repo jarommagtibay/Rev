@@ -10,7 +10,7 @@ const client = require('./core/client');
 const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL, isStaff } = require('./core/helpers');
-const { extractReceiptDetails } = require('./core/receiptScanner');
+const { extractReceiptDetails, comparePaymentPrice } = require('./core/receiptScanner');
 const { checkUnvouchedInterval } = require('./core/unvouched');
 
 // Fail fast if critical config is missing
@@ -399,6 +399,19 @@ client.on(Events.MessageCreate, async (message) => {
             }
             saveData();
 
+            // Resolve order expected price from entry or embed
+            let expectedPrice = entry?.price ?? null;
+            if (expectedPrice == null && fields.length > 0) {
+              const priceField = fields.find((f) => f.name === 'Price' || f.name === 'Flash Price');
+              if (priceField && priceField.value) {
+                const cleanPrice = priceField.value.split('\n')[0].replace(/,/g, '');
+                const matchPrice = cleanPrice.match(/([0-9]+(?:\.[0-9]+)?)/);
+                if (matchPrice) expectedPrice = parseFloat(matchPrice[1]);
+              }
+            }
+
+            const comparison = comparePaymentPrice(scanResult.amountValue, expectedPrice);
+
             // Post Staff-Only Scanned Receipt Log in Staff Audit Channel
             if (AUDIT_CHANNEL_ID) {
               const auditChan = await client.channels.fetch(AUDIT_CHANNEL_ID).catch(() => null);
@@ -407,15 +420,37 @@ client.on(Events.MessageCreate, async (message) => {
                   ? `\`${scanResult.refNo}\` *(tap to copy on mobile)*`
                   : '*Not detected (please verify manually)*';
                 const amountDisplay = scanResult.amount ? `**${scanResult.amount}**` : '*Not detected*';
+                const expectedDisplay = expectedPrice != null ? `**₱${Number(expectedPrice).toFixed(2)}**` : '*Unknown*';
+
+                let comparisonLine = `• **Price Comparison:** ${comparison.badge}`;
+                let auditContent = null;
+                let embedColor = 0x00b0f4;
+
+                if (comparison.status === 'underpaid') {
+                  embedColor = 0xff3333;
+                  auditContent = `<@&${STAFF_ROLE_ID}> ⚠️ **PAYMENT UNDERPAYMENT DETECTED in #${message.channel.name}!**`;
+                  comparisonLine = `• **Price Comparison:** ⚠️ **UNDERPAID (Short by ₱${comparison.shortage.toFixed(2)})**\n• **Warning:** 🛑 *Customer sent LESS than the required total. Do not process until full balance is paid.*`;
+                } else if (comparison.status === 'match') {
+                  embedColor = 0x00c853;
+                  comparisonLine = `• **Price Comparison:** ✅ **Exact Match (Paid in Full)**`;
+                } else if (comparison.status === 'overpaid') {
+                  comparisonLine = `• **Price Comparison:** ℹ️ **Overpaid (+₱${comparison.excess.toFixed(2)})**`;
+                }
 
                 const logEmbed = new EmbedBuilder()
-                  .setColor(0x00b0f4)
-                  .setTitle(`🧾  Receipt Scanned: #${message.channel.name}`)
+                  .setColor(embedColor)
+                  .setTitle(
+                    comparison.status === 'underpaid'
+                      ? `⚠️  Receipt Scanned (Underpaid): #${message.channel.name}`
+                      : `🧾  Receipt Scanned: #${message.channel.name}`
+                  )
                   .setDescription(
                     `A payment screenshot was submitted in **#${message.channel.name}** (<#${message.channel.id}>):\n\n` +
                     `• **Bank / App:** ${scanResult.provider}\n` +
                     `• **Ref No:** ${refDisplay}\n` +
-                    `• **Amount:** ${amountDisplay}\n` +
+                    `• **Receipt Amount:** ${amountDisplay}\n` +
+                    `• **Order Total:** ${expectedDisplay}\n` +
+                    `${comparisonLine}\n` +
                     `• **Duplicate Check:** ✅ **Unique Receipt** (First time seen)\n` +
                     `• **Customer:** <@${message.author.id}> (\`${message.author.id}\`)\n` +
                     `• **Ticket Channel:** #${message.channel.name} (<#${message.channel.id}>)\n` +
@@ -425,7 +460,7 @@ client.on(Events.MessageCreate, async (message) => {
                   .setFooter({ text: 'Staff-Only Receipt Log • Reveux Shop' })
                   .setTimestamp();
 
-                await auditChan.send({ embeds: [logEmbed] });
+                await auditChan.send({ content: auditContent, embeds: [logEmbed] });
               }
             }
           }
@@ -435,6 +470,9 @@ client.on(Events.MessageCreate, async (message) => {
             entry.lastScannedReceipt = {
               refNo: scanResult.refNo,
               amount: scanResult.amount,
+              amountValue: scanResult.amountValue,
+              expectedPrice,
+              comparison,
               provider: scanResult.provider,
               isFailed: scanResult.isFailed,
               isDuplicate,
@@ -454,11 +492,50 @@ client.on(Events.MessageCreate, async (message) => {
         entry._lastReceiptAlert = Date.now();
       }
 
-      await message.channel.send({
-        content:
-          `🧾 **Receipt screenshot detected!**\n` +
-          `> Staff has been notified to verify your payment. Please wait a moment while we process your order!`,
-      });
+      // Resolve comparison for ticket alert
+      const receiptComparison = entry?.lastScannedReceipt?.comparison;
+      const expectedPriceVal = entry?.lastScannedReceipt?.expectedPrice;
+
+      if (receiptComparison && receiptComparison.status === 'underpaid') {
+        await message.channel.send({
+          content: `<@${message.author.id}>`,
+          embeds: [
+            new EmbedBuilder()
+              .setColor(0xff9900)
+              .setTitle('⚠️  Payment Notice: Underpayment Detected')
+              .setDescription(
+                `We scanned your receipt, but the detected amount is **less than the required order total**:\n\n` +
+                `• **Order Total:** **₱${Number(expectedPriceVal).toFixed(2)}**\n` +
+                `• **Receipt Amount Detected:** **${scanResult.amount}**\n` +
+                `• **Remaining Balance Needed:** **₱${receiptComparison.shortage.toFixed(2)}**\n\n` +
+                `ℹ️ *Please send the remaining balance of **₱${receiptComparison.shortage.toFixed(2)}** and upload your receipt here so staff can process your order.*\n` +
+                `*(If our scanner misread your screenshot, don't worry! Staff will manually review and verify your payment shortly.)*`
+              )
+              .setTimestamp(),
+          ],
+        });
+      } else if (receiptComparison && receiptComparison.status === 'match') {
+        await message.channel.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(0x00c853)
+              .setTitle('🧾  Receipt Detected & Amount Verified')
+              .setDescription(
+                `Receipt screenshot received:\n\n` +
+                `• **Amount Detected:** **${scanResult.amount}** (✅ Matches order total)\n` +
+                (scanResult.refNo ? `• **Ref No:** \`${scanResult.refNo}\`\n\n` : '\n') +
+                `Staff has been notified to verify your payment. Please wait a moment while we process your order!`
+              )
+              .setTimestamp(),
+          ],
+        });
+      } else {
+        await message.channel.send({
+          content:
+            `🧾 **Receipt screenshot detected!**\n` +
+            `> Staff has been notified to verify your payment. Please wait a moment while we process your order!`,
+        });
+      }
     }
   } catch (err) {
     console.error('Error detecting receipt screenshot:', err);

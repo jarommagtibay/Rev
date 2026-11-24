@@ -83,38 +83,121 @@ function findReferenceNumber(text) {
 }
 
 /**
- * Extracts the transaction amount from raw OCR text.
+ * Extracts detailed transaction amount (both formatted string and numeric value) from raw OCR text.
+ * @param {string} text
+ * @returns {{ formatted: string|null, value: number|null }}
+ */
+function parseAmountDetails(text) {
+  if (!text || typeof text !== 'string') return { formatted: null, value: null };
+
+  const clean = text.replace(/[\r\n]+/g, ' ');
+
+  // 1. Explicit labeled totals: "Total Amount Sent ₱ 114.00", "Total Amount: ₱114.00", "Total Paid: 114.00"
+  const totalMatch = clean.match(
+    /(?:total\s*amount(?:\s*sent)?(?:\s*paid)?|total(?:\s*paid)?|amount\s*sent)\s*[:.]?\s*(?:php|₱|p\.?)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i
+  );
+  if (totalMatch) {
+    const num = parseFloat(totalMatch[1].replace(/,/g, ''));
+    if (!isNaN(num) && num > 0) {
+      return {
+        formatted: `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        value: num,
+      };
+    }
+  }
+
+  // 2. Generic labeled "Amount 114.00", "Amount: PHP 114.00"
+  const amountMatch = clean.match(
+    /(?:amount|paid)\s*[:.]?\s*(?:php|₱|p\.?)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i
+  );
+  if (amountMatch) {
+    const num = parseFloat(amountMatch[1].replace(/,/g, ''));
+    if (!isNaN(num) && num > 0) {
+      return {
+        formatted: `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        value: num,
+      };
+    }
+  }
+
+  // 3. Currency symbol prefix: "₱ 114.00", "PHP 114.00", "₱114.00"
+  const currencyMatch = clean.match(/(?:₱|PHP)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i);
+  if (currencyMatch) {
+    const num = parseFloat(currencyMatch[1].replace(/,/g, ''));
+    if (!isNaN(num) && num > 0) {
+      return {
+        formatted: `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        value: num,
+      };
+    }
+  }
+
+  return { formatted: null, value: null };
+}
+
+/**
+ * Extracts the transaction amount from raw OCR text (returns formatted string).
  * @param {string} text
  * @returns {string|null}
  */
 function findAmount(text) {
-  if (!text || typeof text !== 'string') return null;
+  return parseAmountDetails(text).formatted;
+}
 
-  const clean = text.replace(/[\r\n]+/g, ' ');
-
-  // Look for "Amount PHP 550.00" or "Total ₱550.00"
-  const labeled = clean.match(
-    /(?:amount|total(?:\s*paid)?|paid|php|₱)\s*[:.]?\s*(?:php|₱)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i
-  );
-  if (labeled) {
-    const val = labeled[1].replace(/,/g, '');
-    const num = parseFloat(val);
-    if (!isNaN(num) && num > 0) {
-      return `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    }
+/**
+ * Compares the scanned receipt amount with the expected order price.
+ * @param {number|null} scannedAmount
+ * @param {number|null} expectedPrice
+ * @returns {{ status: 'match'|'underpaid'|'overpaid'|'unknown', diff: number, shortage: number, excess: number, badge: string, message: string }}
+ */
+function comparePaymentPrice(scannedAmount, expectedPrice) {
+  if (scannedAmount == null || isNaN(scannedAmount) || expectedPrice == null || isNaN(expectedPrice)) {
+    return {
+      status: 'unknown',
+      diff: 0,
+      shortage: 0,
+      excess: 0,
+      badge: '🔍 Manual Verification Required',
+      message: 'Could not automatically detect amount from receipt (please verify manually)',
+    };
   }
 
-  // Look for currency prefix e.g. "₱550.00" or "PHP 550.00"
-  const currencyMatch = clean.match(/(?:₱|PHP)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i);
-  if (currencyMatch) {
-    const val = currencyMatch[1].replace(/,/g, '');
-    const num = parseFloat(val);
-    if (!isNaN(num) && num > 0) {
-      return `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    }
+  const sVal = Math.round(Number(scannedAmount) * 100) / 100;
+  const eVal = Math.round(Number(expectedPrice) * 100) / 100;
+  const diff = Math.round((sVal - eVal) * 100) / 100;
+
+  if (Math.abs(diff) < 0.01) {
+    return {
+      status: 'match',
+      diff: 0,
+      shortage: 0,
+      excess: 0,
+      badge: '✅ Exact Match',
+      message: `Receipt amount matches order total (₱${eVal.toFixed(2)})`,
+    };
   }
 
-  return null;
+  if (diff < 0) {
+    const shortage = Math.abs(diff);
+    return {
+      status: 'underpaid',
+      diff,
+      shortage,
+      excess: 0,
+      badge: `⚠️ Underpayment (Short ₱${shortage.toFixed(2)})`,
+      message: `Receipt shows ₱${sVal.toFixed(2)}, which is ₱${shortage.toFixed(2)} less than order total (₱${eVal.toFixed(2)})!`,
+    };
+  }
+
+  const excess = diff;
+  return {
+    status: 'overpaid',
+    diff,
+    shortage: 0,
+    excess,
+    badge: `ℹ️ Overpayment (+₱${excess.toFixed(2)})`,
+    message: `Receipt shows ₱${sVal.toFixed(2)}, which is ₱${excess.toFixed(2)} more than order total (₱${eVal.toFixed(2)})`,
+  };
 }
 
 /**
@@ -264,7 +347,9 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentN
   }
 
   const refNo = findReferenceNumber(rawText);
-  const amount = findAmount(rawText);
+  const amountDetails = parseAmountDetails(rawText);
+  const amount = amountDetails.formatted;
+  const amountValue = amountDetails.value;
   const isReceipt = checkIsReceipt(rawText, refNo, amount, attachmentName, fallbackText);
   const isFailed = checkIsFailedTransaction(rawText);
   const provider = detectProvider(rawText);
@@ -272,6 +357,7 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentN
   return {
     refNo,
     amount,
+    amountValue,
     rawText,
     ocrAvailable,
     isReceipt,
@@ -284,6 +370,8 @@ module.exports = {
   extractReceiptDetails,
   findReferenceNumber,
   findAmount,
+  parseAmountDetails,
+  comparePaymentPrice,
   checkIsReceipt,
   checkIsFailedTransaction,
   detectProvider,

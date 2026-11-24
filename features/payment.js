@@ -111,17 +111,36 @@ async function runCheckReceipt(interaction) {
     ? `\`${scanned.refNo}\` *(tap to copy on mobile)*`
     : '*Not detected by OCR*';
   const amountText = scanned.amount ? `**${scanned.amount}**` : '*Not detected*';
+  const expectedText =
+    scanned.expectedPrice != null
+      ? `**₱${Number(scanned.expectedPrice).toFixed(2)}**`
+      : entry?.price != null
+      ? `**₱${Number(entry.price).toFixed(2)}**`
+      : '*Unknown*';
+  const comparisonBadge = scanned.comparison
+    ? scanned.comparison.badge
+    : scanned.amount
+    ? '🔍 *Needs manual verification*'
+    : '*No amount detected*';
   const dupText = scanned.isDuplicate
     ? '🚨 **DUPLICATE RECEIPT WARNING**'
     : '✅ **Unique Receipt** (First time seen)';
 
+  const embedColor = scanned.isDuplicate
+    ? 0xff0000
+    : scanned.isFailed || (scanned.comparison && scanned.comparison.status === 'underpaid')
+    ? 0xff9900
+    : COLOR;
+
   const embed = new EmbedBuilder()
-    .setColor(scanned.isDuplicate ? 0xff0000 : scanned.isFailed ? 0xff9900 : COLOR)
+    .setColor(embedColor)
     .setTitle('🧾  Staff Receipt Details (Staff Only)')
     .setDescription(
       `• **Bank / App:** ${providerText}\n` +
       `• **Ref No:** ${refText}\n` +
-      `• **Amount:** ${amountText}\n` +
+      `• **Receipt Amount:** ${amountText}\n` +
+      `• **Order Total:** ${expectedText}\n` +
+      `• **Price Comparison:** ${comparisonBadge}\n` +
       `• **Duplicate Check:** ${dupText}\n` +
       (scanned.isFailed ? `• **Status:** ⚠️ **Failed / Incomplete Transfer**\n` : '') +
       `• **Scanned:** <t:${Math.floor(scanned.timestamp / 1000)}:R>`
