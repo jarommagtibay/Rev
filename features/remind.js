@@ -1,7 +1,8 @@
-// /remind -> Staff only: send a polite reminder ping to the customer inside their ticket
-const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+// /remind -> Staff only: send a polite reminder ping to the customer inside their ticket that sticks to the bottom
+const { SlashCommandBuilder } = require('discord.js');
 const { COLOR } = require('../config');
 const { EPHEMERAL, isStaff, getCustomerId } = require('../core/helpers');
+const { setStickyRemind, handleStickyInteraction } = require('../core/sticky');
 
 const REMINDER_TEXTS = {
   receipt:
@@ -15,7 +16,7 @@ const REMINDER_TEXTS = {
 const commands = [
   new SlashCommandBuilder()
     .setName('remind')
-    .setDescription('Staff only: send a reminder ping to the customer in this ticket')
+    .setDescription('Staff only: send a reminder ping to the customer in this ticket (pinned to bottom)')
     .addStringOption((o) =>
       o
         .setName('type')
@@ -59,20 +60,10 @@ async function runRemind(interaction) {
     desc += `\n\n💬 **Staff note:** ${customNote}`;
   }
 
-  const embed = new EmbedBuilder()
-    .setColor(COLOR)
-    .setTitle('🔔  Customer Reminder')
-    .setDescription(desc)
-    .setFooter({ text: `Reminder sent by @${interaction.user.username} • Reveux Staff` })
-    .setTimestamp();
-
-  await interaction.channel.send({
-    content: customerId ? `<@${customerId}>` : undefined,
-    embeds: [embed],
-  });
+  await setStickyRemind(interaction.channel, type, desc, interaction.user.username, customerId);
 
   return interaction.reply({
-    content: '✅ Reminder sent to the customer.',
+    content: '✅ Reminder sent and pinned to the bottom of the ticket.',
     flags: EPHEMERAL,
   });
 }
@@ -81,6 +72,9 @@ async function handle(interaction) {
   if (interaction.isChatInputCommand() && interaction.commandName === 'remind') {
     await runRemind(interaction);
     return true;
+  }
+  if (interaction.isButton() && interaction.customId.startsWith('dismiss_sticky:remind')) {
+    return handleStickyInteraction(interaction);
   }
   return false;
 }

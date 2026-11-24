@@ -73,6 +73,11 @@ async function handle(interaction) {
     .slice(0, 5)
     .map(([pkg, count]) => `• **${pkg}**: \`${count}\` sold`);
 
+  // Customer ratings during period
+  const periodRatings = (data.ratings || []).filter((r) => (r.timestamp || 0) >= cutoff);
+  const totalRatingPoints = periodRatings.reduce((sum, r) => sum + (Number(r.rating) || 5), 0);
+  const avgRating = periodRatings.length > 0 ? (totalRatingPoints / periodRatings.length).toFixed(1) : null;
+
   const embed = new EmbedBuilder()
     .setColor(COLOR)
     .setTitle(`📊  Revéux Sales Report — ${titleTimeframe}`)
@@ -86,6 +91,13 @@ async function handle(interaction) {
       {
         name: '📦 Completed Orders',
         value: `\`\`\`${orders.length} orders\`\`\``,
+        inline: true,
+      },
+      {
+        name: '⭐ Customer Satisfaction',
+        value: avgRating
+          ? `\`\`\`${avgRating} / 5.0 ⭐ (${periodRatings.length} reviews)\`\`\``
+          : '```No ratings yet```',
         inline: true,
       },
       {

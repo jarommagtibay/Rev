@@ -31,6 +31,9 @@ function loadData() {
       flashDrop: d.flashDrop && typeof d.flashDrop === 'object' ? d.flashDrop : null,
       staffAfk: d.staffAfk && typeof d.staffAfk === 'object' ? d.staffAfk : {},
       unvouchedBuyers: d.unvouchedBuyers && typeof d.unvouchedBuyers === 'object' ? d.unvouchedBuyers : {},
+      ratings: Array.isArray(d.ratings) ? d.ratings : [],
+      expressFee: typeof d.expressFee === 'number' ? d.expressFee : null,
+      lowStockThreshold: typeof d.lowStockThreshold === 'number' ? d.lowStockThreshold : null,
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -64,6 +67,9 @@ function loadData() {
       flashDrop: null,
       staffAfk: {},
       unvouchedBuyers: {},
+      ratings: [],
+      expressFee: null,
+      lowStockThreshold: null,
     };
   }
 }
@@ -194,6 +200,35 @@ function getAverageETA() {
   return Math.max(5, Math.round(sum / times.length));
 }
 
+// Gets current express fee (uses live data override, or falls back to config/.env)
+function getExpressFee() {
+  const { EXPRESS_FEE } = require('../config');
+  return typeof data.expressFee === 'number' && !isNaN(data.expressFee) ? data.expressFee : EXPRESS_FEE;
+}
+
+// Gets current low stock threshold (uses live data override, or falls back to config/.env)
+function getLowStockThreshold() {
+  const { LOW_STOCK_THRESHOLD } = require('../config');
+  return typeof data.lowStockThreshold === 'number' && !isNaN(data.lowStockThreshold) ? data.lowStockThreshold : LOW_STOCK_THRESHOLD;
+}
+
+// Records an order star rating (1–5) and saves it to history
+function recordRating(rating, orderId, userId, review = '') {
+  const r = Math.min(5, Math.max(1, Number(rating) || 5));
+  if (!Array.isArray(data.ratings)) data.ratings = [];
+  data.ratings.push({
+    rating: r,
+    orderId: (orderId || '').replace(/[`#]/g, ''),
+    userId: userId || null,
+    review: review || '',
+    timestamp: Date.now(),
+  });
+  if (data.ratings.length > 10000) {
+    data.ratings = data.ratings.slice(-10000);
+  }
+  saveData();
+}
+
 // Checks if a Discord user id is blacklisted from opening tickets
 function isBlacklisted(userId) {
   return Array.isArray(data.blacklist) && data.blacklist.some((b) => b.userId === userId);
@@ -213,4 +248,7 @@ module.exports = {
   isBlacklisted,
   syncStaffStats,
   generateOrderId,
+  getExpressFee,
+  getLowStockThreshold,
+  recordRating,
 };

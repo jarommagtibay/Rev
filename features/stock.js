@@ -17,11 +17,10 @@ const {
   SHOP_PING_ROLE_ID,
   STOCK_CHANNEL_ID,
   AUDIT_CHANNEL_ID,
-  LOW_STOCK_THRESHOLD,
 } = require('../config');
 const client = require('../core/client');
 const M = require('../messages');
-const { data, saveData, formatPrice } = require('../core/data');
+const { data, saveData, formatPrice, getLowStockThreshold } = require('../core/data');
 const { EPHEMERAL, isStaff, fill } = require('../core/helpers');
 
 const commands = [
@@ -299,20 +298,21 @@ async function checkStockAlerts(currentStock) {
     const auditChan = await client.channels.fetch(AUDIT_CHANNEL_ID).catch(() => null);
     if (!auditChan) return;
 
+    const lowThreshold = getLowStockThreshold();
     if (currentStock <= 0 && !data._zeroStockAlerted) {
       data._zeroStockAlerted = true;
       saveData();
       await auditChan.send({
         content: `🚨 **ROBUX OUT OF STOCK**: Robux stock reached **0**! Game credits are unaffected. Use \`/setup stock:<amount>\` to restock.`,
       });
-    } else if (currentStock > 0 && currentStock <= LOW_STOCK_THRESHOLD && !data._lowStockAlerted) {
+    } else if (currentStock > 0 && currentStock <= lowThreshold && !data._lowStockAlerted) {
       data._lowStockAlerted = true;
       data._zeroStockAlerted = false;
       saveData();
       await auditChan.send({
-        content: `⚠️ **LOW STOCK ALERT**: Current Robux stock is **${currentStock.toLocaleString()} R$** (below threshold of ${LOW_STOCK_THRESHOLD.toLocaleString()} R$). Please restock soon!`,
+        content: `⚠️ **LOW STOCK ALERT**: Current Robux stock is **${currentStock.toLocaleString()} R$** (below threshold of ${lowThreshold.toLocaleString()} R$). Please restock soon!`,
       });
-    } else if (currentStock > LOW_STOCK_THRESHOLD) {
+    } else if (currentStock > lowThreshold) {
       data._lowStockAlerted = false;
       data._zeroStockAlerted = false;
       saveData();

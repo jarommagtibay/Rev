@@ -12,6 +12,7 @@ const client = require('./client');
 const M = require('../messages');
 const { baseName, fill } = require('./helpers');
 const { generateReceiptCard } = require('./receiptCard');
+const { data, formatPeso } = require('./data');
 
 // Big headline at the top of the order card: what was bought + the price, large and easy to see.
 // Only decoration: nothing in the bot reads the description, the fields below stay the real data.
@@ -123,14 +124,30 @@ function ticketRows(stage, paid, canEdit = true, onHold = false) {
   ];
 }
 
-// The Vouch button is sent as a NEW message at the bottom of the ticket.
+// The Rating / Vouch buttons sent as a NEW message at the bottom of the ticket.
 // mainMessageId is the id of the main ticket message (the order embed).
 function vouchRow(mainMessageId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`vouch:${mainMessageId}`)
-      .setLabel('Vouch')
-      .setStyle(ButtonStyle.Danger)
+      .setCustomId(`vouch_star:1:${mainMessageId}`)
+      .setLabel('⭐ 1')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`vouch_star:2:${mainMessageId}`)
+      .setLabel('⭐ 2')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`vouch_star:3:${mainMessageId}`)
+      .setLabel('⭐ 3')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`vouch_star:4:${mainMessageId}`)
+      .setLabel('⭐ 4')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`vouch_star:5:${mainMessageId}`)
+      .setLabel('⭐ 5')
+      .setStyle(ButtonStyle.Success)
   );
 }
 
@@ -139,17 +156,39 @@ async function postReceipt(embed, ticketChannel) {
   if (!RECEIPT_CHANNEL_ID) return;
   try {
     const fields = embed.data ? embed.data.fields || [] : embed.fields || [];
-    const get = (name) => ((fields.find((f) => f.name === name) || {}).value || '-');
+    const get = (name) => {
+      const lower = name.toLowerCase();
+      const match = fields.find((f) => f.name.toLowerCase() === lower || f.name.toLowerCase().includes(lower));
+      return match ? match.value : '-';
+    };
     const clean = (val) => val.replace(/```\n?/g, '').trim();
 
-    const orderId = get('Order ID') !== '-' ? get('Order ID') : 'REV-XXXX';
+    const orderIdRaw = get('Order ID');
+    const orderId = orderIdRaw !== '-' ? orderIdRaw.replace(/[`#]/g, '').trim() : 'REV-XXXX';
     const customer = get('Opened by');
     const payment = get('Payment');
     const status = get('Status');
     const ticketName = baseName(ticketChannel.name);
 
     let productName = 'Robux';
-    let priceText = get('Price') !== '-' ? get('Price') : get('Flash Price');
+    let priceText = get('Price');
+    if (priceText === '-') priceText = get('Flash Price');
+
+    // Fallback search in data.ordersLog or data.queue for price
+    const cleanOrderId = orderId.replace(/[`#]/g, '').trim();
+    const logMatch =
+      (data.ordersLog || []).find((o) => o.orderId === cleanOrderId || o.channelId === ticketChannel.id) ||
+      (data.queue || []).find((q) => q.orderId === cleanOrderId || q.channelId === ticketChannel.id);
+    if ((priceText === '-' || !priceText) && logMatch && logMatch.price) {
+      priceText = formatPeso(logMatch.price);
+    }
+    // Also check description for currency match if still missing
+    if ((priceText === '-' || !priceText) && embed.data && embed.data.description) {
+      const match = embed.data.description.match(/(?:₱|PHP|\$)\s*[0-9,]+(?:\.[0-9]{2})?/i);
+      if (match) priceText = match[0].trim();
+    }
+    if (!priceText || priceText === '-') priceText = '₱0.00';
+
     let accountInfo = '-';
     let gameName = 'Roblox';
 
@@ -172,18 +211,47 @@ async function postReceipt(embed, ticketChannel) {
       accountInfo = details.join(' • ') || '-';
     }
 
+    // Resolve customer and staff real usernames and avatar
+    const custIdMatch = (customer || '').match(/\d+/);
+    const customerId = custIdMatch ? custIdMatch[0] : '';
+    let customerName = customerId ? 'Customer' : 'Customer';
+    let customerAvatar = undefined;
+
+    if (customerId && ticketChannel.guild) {
+      try {
+        const member = await ticketChannel.guild.members.fetch(customerId).catch(() => null);
+        if (member) {
+          customerName = member.user.username;
+          customerAvatar = member.user.displayAvatarURL({ extension: 'png', size: 128 });
+        }
+      } catch {}
+    }
+
+    let staffName = 'Staff';
+    const staffIdMatch = (payment || '').match(/<@!?(\d+)>/);
+    if (staffIdMatch && ticketChannel.guild) {
+      try {
+        const staffMember = await ticketChannel.guild.members.fetch(staffIdMatch[1]).catch(() => null);
+        if (staffMember) staffName = staffMember.user.username;
+      } catch {}
+    } else {
+      const cleanStaff = payment.replace(/Received by/i, '').replace(/<@!?\d+>/g, '').trim();
+      if (cleanStaff && cleanStaff !== '-') staffName = cleanStaff;
+    }
+
     // Try generating the graphic PNG receipt card
     let receiptResult = null;
     try {
       receiptResult = await generateReceiptCard({
-        orderId: orderId.replace(/[`#]/g, ''),
-        customerName: customer.replace(/<@!?(\d+)>/, '$1'),
-        customerId: customer.replace(/[^0-9]/g, ''),
+        orderId,
+        customerName,
+        customerId,
+        customerAvatar,
         productName,
-        priceText: priceText !== '-' ? priceText : '₱0.00',
+        priceText,
         accountInfo,
         gameName,
-        staffName: payment.replace(/<@!?(\d+)>/, '$1') || 'Staff',
+        staffName,
         timestamp: Date.now(),
       });
     } catch (cardErr) {

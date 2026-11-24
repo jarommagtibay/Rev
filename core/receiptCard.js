@@ -149,7 +149,36 @@ async function generateReceiptCard(order) {
       const pillText = 'VERIFIED';
       ctx.font = 'bold 10px sans-serif';
       const pillW = ctx.measureText(pillText).width + 26;
-      const pillX = W - PAD - pillW;
+      let pillX = W - PAD - pillW;
+
+      // Draw customer avatar if available
+      if (loadImage && order.customerAvatar) {
+        try {
+          const img = await loadImage(order.customerAvatar);
+          const avSize = 28;
+          const avX = W - PAD - avSize;
+          const avY = headerY - 5;
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(avX + avSize / 2, avY + avSize / 2, avSize / 2, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(img, avX, avY, avSize, avSize);
+          ctx.restore();
+
+          // Border around avatar
+          ctx.strokeStyle = RED;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(avX + avSize / 2, avY + avSize / 2, avSize / 2, 0, Math.PI * 2);
+          ctx.stroke();
+
+          pillX = avX - pillW - 10;
+        } catch {
+          // Fallback if avatar fails to load
+        }
+      }
+
       roundRect(ctx, pillX, headerY - 4, pillW, 22, 11);
       ctx.fillStyle = GREEN_DIM;
       ctx.fill();
@@ -201,11 +230,19 @@ async function generateReceiptCard(order) {
         return 40; // row height
       }
 
+      const cleanCustomer = String(customerName || 'Customer')
+        .replace(/^@+/, '')
+        .trim();
+      const cleanStaff = String(staffName || 'Staff')
+        .replace(/^Received by\s*/i, '')
+        .replace(/^@+/, '')
+        .trim();
+
       // Left column
       let ly = gridY;
-      ly += drawField(leftX, ly, 'CUSTOMER', `@${customerName}`);
+      ly += drawField(leftX, ly, 'CUSTOMER', `@${cleanCustomer}`);
       ly += drawField(leftX, ly, 'ACCOUNT', accountInfo);
-      ly += drawField(leftX, ly, 'FULFILLED BY', `@${staffName}`);
+      ly += drawField(leftX, ly, 'FULFILLED BY', `@${cleanStaff || 'Staff'}`);
 
       // Right column
       let ry = gridY;

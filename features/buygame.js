@@ -9,9 +9,9 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require('discord.js');
-const { COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT, CURRENCY, EXPRESS_FEE } = require('../config');
+const { COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT, CURRENCY } = require('../config');
 const { GAMES } = require('../catalog');
-const { data, saveData, formatPeso, isBlacklisted, generateOrderId } = require('../core/data');
+const { data, saveData, formatPeso, isBlacklisted, generateOrderId, getExpressFee } = require('../core/data');
 const { EPHEMERAL, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
@@ -126,9 +126,10 @@ async function showForm(interaction) {
     .setMaxLength(20);
   modal.addComponents(new ActionRowBuilder().addComponents(promoInput));
 
+  const expressFee = getExpressFee();
   const expressInput = new TextInputBuilder()
     .setCustomId('game_express')
-    .setLabel(`⚡ Express Queue (+${CURRENCY}${EXPRESS_FEE})? Type YES`)
+    .setLabel(`⚡ Express Queue (+${CURRENCY}${expressFee})? Type YES`)
     .setPlaceholder('Type YES to skip the line, or leave blank')
     .setStyle(TextInputStyle.Short)
     .setRequired(false)
@@ -213,9 +214,10 @@ async function createTicket(interaction) {
   }
 
   let expressNote = '';
+  const expressFee = getExpressFee();
   if (isExpress) {
-    price += EXPRESS_FEE;
-    expressNote = ` (+${CURRENCY}${EXPRESS_FEE} Express)`;
+    price += expressFee;
+    expressNote = ` (+${CURRENCY}${expressFee} Express)`;
   }
 
   await interaction.deferReply({ flags: EPHEMERAL });
@@ -249,7 +251,7 @@ async function createTicket(interaction) {
   if (isExpress) {
     embed.addFields({
       name: '⚡  Priority Level',
-      value: `**VIP EXPRESS QUEUE (+${CURRENCY}${EXPRESS_FEE})** — Prioritized at the front of the line!`,
+      value: `**VIP EXPRESS QUEUE (+${CURRENCY}${expressFee})** — Prioritized at the front of the line!`,
       inline: false,
     });
   }

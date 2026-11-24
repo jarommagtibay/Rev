@@ -16,7 +16,6 @@ const {
   CURRENCY,
   DAILY_SALE_CHANNEL_ID,
   STAFF_ROLE_ID,
-  EXPRESS_FEE,
   MAX_TICKETS_PER_PRODUCT,
   GUILD_ID,
 } = require('../config');
@@ -27,6 +26,7 @@ const {
   formatPeso,
   isBlacklisted,
   generateOrderId,
+  getExpressFee,
 } = require('../core/data');
 const {
   EPHEMERAL,
@@ -443,7 +443,7 @@ async function handleClaimButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('express_delivery')
-          .setLabel(`⚡ Express Delivery (+${CURRENCY}${EXPRESS_FEE})`)
+          .setLabel(`⚡ Express Delivery (+${CURRENCY}${getExpressFee()})`)
           .setStyle(TextInputStyle.Short)
           .setPlaceholder('Type "yes" to jump to #1 in queue (optional)')
           .setRequired(false)
@@ -496,15 +496,24 @@ async function handleModalSubmit(interaction) {
   // Calculate discounted flash sale price
   let price = Math.round((amount / 100) * fd.rate);
   let expressNote = '';
+  const expressFee = getExpressFee();
   if (isExpress) {
-    price += EXPRESS_FEE;
-    expressNote = ` (+${CURRENCY}${EXPRESS_FEE} Express)`;
+    price += expressFee;
+    expressNote = ` (+${CURRENCY}${expressFee} Express)`;
   }
 
   await interaction.deferReply({ flags: EPHEMERAL });
 
-  // Lookup Roblox avatar in background
+  // Strictly verify Roblox account before opening ticket
   const roblox = await getRobloxProfile(username);
+  if (roblox && roblox.notFound) {
+    return interaction.editReply({
+      content:
+        `❌ **Roblox Account Not Found!** No account named \`${username}\` exists on Roblox.\n\n` +
+        `Please check your spelling (use your exact Roblox @username, not display name) and try again to prevent wrong deliveries!`,
+    });
+  }
+
   const safeName = makeSafeName(interaction.user);
   const orderId = generateOrderId();
   const position = data.queue.length + 1;
@@ -537,7 +546,7 @@ async function handleModalSubmit(interaction) {
   if (isExpress) {
     embed.addFields({
       name: '⚡  Priority Level',
-      value: `**VIP EXPRESS QUEUE (+${CURRENCY}${EXPRESS_FEE})** — Prioritized at the front of the line!`,
+      value: `**VIP EXPRESS QUEUE (+${CURRENCY}${expressFee})** — Prioritized at the front of the line!`,
       inline: false,
     });
   }

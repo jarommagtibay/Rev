@@ -13,7 +13,7 @@ const {
 const { COLOR, VOUCH_CHANNEL_ID } = require('../config');
 const client = require('../core/client');
 const M = require('../messages');
-const { data, saveData, recordStaffAction } = require('../core/data');
+const { data, saveData, recordStaffAction, recordRating } = require('../core/data');
 const { clearUnvouchedBuyer } = require('../core/unvouched');
 const {
   EPHEMERAL,
@@ -96,6 +96,41 @@ function buildVouchModal(mainMessageId) {
   );
 }
 
+// Star rating buttons (1 to 5 ⭐)
+async function starVouchButton(interaction) {
+  if (interaction.user.id !== getCustomerId(interaction.channel)) {
+    return interaction.reply({
+      content: 'Only the customer of this ticket can leave a rating.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  if (!VOUCH_CHANNEL_ID) {
+    return interaction.reply({
+      content: 'The vouch channel is not set up yet. Please tell staff.',
+      flags: EPHEMERAL,
+    });
+  }
+
+  const [, stars, mainMessageId] = interaction.customId.split(':');
+  const rating = Number(stars) || 5;
+
+  const modal = new ModalBuilder()
+    .setCustomId(`vouch_form:${mainMessageId}:${rating}`)
+    .setTitle(`Rate Order: ${'⭐'.repeat(rating)}`.slice(0, 45));
+
+  const messageInput = new TextInputBuilder()
+    .setCustomId('vouch_message')
+    .setLabel(`Your Review (${rating} ⭐ rating selected)`)
+    .setPlaceholder('e.g. Fast delivery, trusted seller! Thank you!')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMaxLength(500);
+
+  modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+  return interaction.showModal(modal);
+}
+
 // Vouch button (in the bottom message) -> only the customer of this ticket
 async function vouchButton(interaction) {
   if (interaction.user.id !== getCustomerId(interaction.channel)) {
@@ -150,14 +185,18 @@ async function postVouch(interaction) {
   }
 
   const vouchText = interaction.fields.getTextInputValue('vouch_message').trim();
-  const ratingText = interaction.fields.getTextInputValue('vouch_rating').trim();
-
-  if (ratingText && !/^[1-5]$/.test(ratingText)) {
-    return interaction.reply({
-      content: 'Rating must be a number from 1 to 5. Please try again.',
-      flags: EPHEMERAL,
-    });
+  const parts = interaction.customId.split(':');
+  const modalStars = parts[2] ? parts[2] : null;
+  let ratingText = modalStars;
+  if (!ratingText) {
+    try {
+      ratingText = interaction.fields.getTextInputValue('vouch_rating').trim();
+    } catch {
+      ratingText = '5';
+    }
   }
+
+  const finalRating = Math.min(5, Math.max(1, Number(ratingText) || 5));
 
   // Optional picture
   let attachment = null;
@@ -215,13 +254,11 @@ async function postVouch(interaction) {
       { name: 'Package', value: packageField.value, inline: true }
     );
   }
-  if (ratingText) {
-    vouchEmbed.addFields({
-      name: 'Rating',
-      value: '⭐'.repeat(Number(ratingText)),
-      inline: true,
-    });
-  }
+  vouchEmbed.addFields({
+    name: 'Rating',
+    value: '⭐'.repeat(finalRating),
+    inline: true,
+  });
 
   // Show the customer's picture inside the vouch
   let proofFile = null;
@@ -271,6 +308,20 @@ async function postVouch(interaction) {
       }
     }
   }
+
+  // Record star rating and update orders log
+  const orderIdField = (ticketEmbed.data.fields || []).find((f) => f.name === 'Order ID');
+  const orderId = orderIdField ? orderIdField.value.replace(/[`#]/g, '').trim() : 'REV-XXXX';
+  recordRating(finalRating, orderId, interaction.user.id, vouchText);
+  if (Array.isArray(data.ordersLog)) {
+    for (const ord of data.ordersLog) {
+      if (ord.orderId === orderId || ord.channelId === interaction.channel.id) {
+        ord.rating = finalRating;
+        ord.vouchText = vouchText;
+      }
+    }
+  }
+
   saveData();
 
   if (!wasCompleted) {
@@ -417,6 +468,11 @@ async function vouchUnlockForm(interaction) {
 }
 
 async function handle(interaction) {
+  if (interaction.isButton() && interaction.customId.startsWith('vouch_star:')) {
+    await starVouchButton(interaction);
+    return true;
+  }
+
   if (interaction.isButton() && interaction.customId.startsWith('vouch:')) {
     await vouchButton(interaction);
     return true;

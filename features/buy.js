@@ -8,8 +8,8 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require('discord.js');
-const { CURRENCY, COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT, EXPRESS_FEE } = require('../config');
-const { data, saveData, formatPeso, robuxPrice, isBlacklisted, generateOrderId } = require('../core/data');
+const { CURRENCY, COLOR, STAFF_ROLE_ID, SHOP_CLOSED_TEXT } = require('../config');
+const { data, saveData, formatPeso, robuxPrice, isBlacklisted, generateOrderId, getExpressFee } = require('../core/data');
 const { EPHEMERAL, parseOrderAmount, ticketLimitMessage } = require('../core/helpers');
 const {
   orderHeadline,
@@ -150,9 +150,10 @@ async function showForm(interaction) {
     .setRequired(false)
     .setMaxLength(20);
 
+  const expressFee = getExpressFee();
   const expressInput = new TextInputBuilder()
     .setCustomId('express_delivery')
-    .setLabel(`⚡ Express Queue (+${CURRENCY}${EXPRESS_FEE})? Type YES`)
+    .setLabel(`⚡ Express Queue (+${CURRENCY}${expressFee})? Type YES`)
     .setPlaceholder('Type YES to skip the line, or leave blank')
     .setStyle(TextInputStyle.Short)
     .setRequired(false)
@@ -229,9 +230,10 @@ async function createTicket(interaction) {
 
   // Add express fee if selected
   let expressNote = '';
+  const expressFee = getExpressFee();
   if (isExpress) {
-    price += EXPRESS_FEE;
-    expressNote = ` (+${CURRENCY}${EXPRESS_FEE} Express)`;
+    price += expressFee;
+    expressNote = ` (+${CURRENCY}${expressFee} Express)`;
   }
 
   const available = availableStock();
@@ -241,8 +243,15 @@ async function createTicket(interaction) {
 
   await interaction.deferReply({ flags: EPHEMERAL });
 
-  // Lookup Roblox avatar and profile in background (non-blocking if API error)
+  // Lookup and strictly verify Roblox account before opening ticket
   const roblox = await getRobloxProfile(username);
+  if (roblox && roblox.notFound) {
+    return interaction.editReply({
+      content:
+        `❌ **Roblox Account Not Found!** No account named \`${username}\` exists on Roblox.\n\n` +
+        `Please check your spelling (use your exact Roblox @username, not display name) and try again to prevent wrong deliveries!`,
+    });
+  }
 
   const safeName = makeSafeName(interaction.user);
   const orderId = generateOrderId();
@@ -273,7 +282,7 @@ async function createTicket(interaction) {
   if (isExpress) {
     embed.addFields({
       name: '⚡  Priority Level',
-      value: `**VIP EXPRESS QUEUE (+${CURRENCY}${EXPRESS_FEE})** — Prioritized at the front of the line!`,
+      value: `**VIP EXPRESS QUEUE (+${CURRENCY}${expressFee})** — Prioritized at the front of the line!`,
       inline: false,
     });
   }

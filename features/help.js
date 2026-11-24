@@ -243,7 +243,8 @@ function buildCustomerHelpEmbed(category = 'overview') {
             name: '📋  Order & Account Tracking',
             value:
               '• `/myorder` — View your current active order, queue position, and estimated wait time.\n' +
-              '• `/history` — View your completed past orders, total spend, and VIP loyalty progress.',
+              '• `/history` — View your completed past orders, total spend, and VIP loyalty progress.\n' +
+              '• `/find [order] [user] [robloxname]` — Quick-search your order history and receipt details.',
           },
           {
             name: '💎  Stock & Pricing',
@@ -362,14 +363,16 @@ function buildStaffHelpEmbed() {
       {
         name: '🛡️  Staff Tools & Moderation',
         value:
+          '• `/config <view|set> [rate] [express] [lowstock]` — Dynamically update rates & fees without restarting\n' +
+          '• `/find [order] [user] [robloxname]` — Look up orders, payment receipts, and customer details\n' +
           '• `/afk <set|off|status> [reason]` — Temporarily step away with auto-reply in tickets\n' +
           '• `/checkreceipt` — View extracted Ref No and Amount of this ticket receipt (staff only)\n' +
           '• `/duty <on|off|status> [note]` — Toggle staff on/off duty status (shows off-duty notice if all staff off-duty)\n' +
           '• `/staffstats` — Show leaderboard of processed, sent and completed orders per staff member\n' +
           '• `/report [today|week|all]` — Generate total revenue and sales volume report\n' +
           '• `/promo <create|delete|list|give>` — Create, manage, or give promo codes to customers in tickets\n' +
-          '• `/remind <receipt|vouch|details> [note]` — Ping customer with a polite reminder\n' +
-          '• `/note <text>` — Post an internal team note inside the ticket channel\n' +
+          '• `/remind <receipt|vouch|details> [note]` — Ping customer with a polite reminder (pinned to bottom)\n' +
+          '• `/note <text>` — Post an internal team note inside the ticket channel (pinned to bottom)\n' +
           '• `/blacklist <add|remove|list>` — Block or unblock users from opening tickets',
       }
     )

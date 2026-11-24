@@ -12,6 +12,7 @@ const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL, isStaff } = require('./core/helpers');
 const { extractReceiptDetails, comparePaymentPrice } = require('./core/receiptScanner');
 const { checkUnvouchedInterval } = require('./core/unvouched');
+const { repositionSticky, clearSticky } = require('./core/sticky');
 
 // Fail fast if critical config is missing
 const required = { TOKEN, CLIENT_ID, GUILD_ID, STAFF_ROLE_ID };
@@ -174,6 +175,7 @@ client.once(Events.ClientReady, async (c) => {
 
 // If a ticket channel is deleted (closed or manually), remove it from the queue
 client.on(Events.ChannelDelete, async (channel) => {
+  clearSticky(channel.id);
   if (removeFromQueue(channel.id)) {
     await refreshQueue(channel.guild);
   }
@@ -196,6 +198,11 @@ client.on(Events.MessageCreate, async (message) => {
 
   const topic = message.channel.topic || '';
   if (!topic.startsWith('ticket:')) return;
+
+  // Reposition any pinned sticky notes or customer reminders to the bottom
+  repositionSticky(message).catch((err) =>
+    console.error('[sticky] Error repositioning sticky messages:', err)
+  );
 
   // 2. Staff AFK Auto-Responder to customer messages in tickets
   if (!isStaff(message.member)) {
