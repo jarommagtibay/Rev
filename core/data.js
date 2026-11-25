@@ -34,6 +34,7 @@ function loadData() {
       ratings: Array.isArray(d.ratings) ? d.ratings : [],
       expressFee: typeof d.expressFee === 'number' ? d.expressFee : null,
       lowStockThreshold: typeof d.lowStockThreshold === 'number' ? d.lowStockThreshold : null,
+      transcriptIndex: Array.isArray(d.transcriptIndex) ? d.transcriptIndex : [],
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -70,6 +71,7 @@ function loadData() {
       ratings: [],
       expressFee: null,
       lowStockThreshold: null,
+      transcriptIndex: [],
     };
   }
 }

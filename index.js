@@ -11,7 +11,11 @@ const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL, isStaff } = require('./core/helpers');
 const { extractReceiptDetails, comparePaymentPrice } = require('./core/receiptScanner');
-const { analyzeReceiptForensics } = require('./core/receiptForensics');
+const {
+  analyzeReceiptForensics,
+  computePerceptualHash,
+  hammingDistance,
+} = require('./core/receiptForensics');
 const { checkUnvouchedInterval } = require('./core/unvouched');
 const { repositionSticky, clearSticky } = require('./core/sticky');
 const { setPaymentProgressField } = require('./core/ticket');
@@ -373,9 +377,30 @@ client.on(Events.MessageCreate, async (message) => {
           }
 
           if (!Array.isArray(data.receiptHashes)) data.receiptHashes = [];
-          const previous = data.receiptHashes.find(
+          const pHash = await computePerceptualHash(buf);
+
+          let matchReason = '';
+          let previous = data.receiptHashes.find(
             (r) => r.hash === imgHash && r.channelId !== message.channel.id
           );
+          if (previous) {
+            matchReason = 'Exact File Match (SHA-256)';
+          } else if (pHash) {
+            let bestDist = 99;
+            for (const r of data.receiptHashes) {
+              if (r.channelId !== message.channel.id && r.pHash) {
+                const dist = hammingDistance(pHash, r.pHash);
+                if (dist <= 6 && dist < bestDist) {
+                  bestDist = dist;
+                  previous = r;
+                }
+              }
+            }
+            if (previous) {
+              const simPct = Math.round(((64 - bestDist) / 64) * 100);
+              matchReason = `Visual Perceptual Match (${simPct}% similar, pHash dist ${bestDist}/64 — cropped/re-compressed duplicate)`;
+            }
+          }
 
           if (previous) {
             isDuplicate = true;
@@ -391,6 +416,7 @@ client.on(Events.MessageCreate, async (message) => {
                       .setTitle('🚨 FRAUD WARNING: Reused Payment Receipt!')
                       .setDescription(
                         `A receipt screenshot that was **previously uploaded in another ticket** was just posted!\n\n` +
+                        `• **Detection Method:** ${matchReason}\n` +
                         `• **Current Ticket:** #${message.channel.name} (<#${message.channel.id}>)\n` +
                         `• **Current User:** <@${message.author.id}> (@${message.author.username})\n` +
                         `• **Previously Used In:** #${previous.channelName || previous.channelId}\n` +
@@ -421,9 +447,10 @@ client.on(Events.MessageCreate, async (message) => {
               ],
             });
           } else {
-            // Save hash
+            // Save SHA-256 + perceptual pHash
             data.receiptHashes.push({
               hash: imgHash,
+              pHash: pHash || null,
               channelId: message.channel.id,
               channelName: message.channel.name,
               userId: message.author.id,

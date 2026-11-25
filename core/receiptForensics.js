@@ -263,8 +263,96 @@ async function analyzeReceiptForensics(buffer, filename = 'receipt.png', visualT
   };
 }
 
+/**
+ * Computes a 64-bit DCT Perceptual Hash (pHash) for an image buffer.
+ * Robust to cropping, resizing, minor edits, and Discord JPEG re-compression.
+ * @param {Buffer} buffer
+ * @returns {Promise<string|null>} 16-char hex string (64 bits) or null
+ */
+async function computePerceptualHash(buffer) {
+  if (!createCanvas || !loadImage || !buffer) return null;
+  try {
+    const img = await loadImage(buffer);
+    if (!img || !img.width || !img.height) return null;
+
+    const N = 32;
+    const canvas = createCanvas(N, N);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, N, N);
+    const pixels = ctx.getImageData(0, 0, N, N).data;
+
+    // Convert to 32x32 luminance matrix
+    const gray = new Float64Array(N * N);
+    for (let i = 0; i < N * N; i++) {
+      const idx = i * 4;
+      gray[i] = 0.299 * pixels[idx] + 0.587 * pixels[idx + 1] + 0.114 * pixels[idx + 2];
+    }
+
+    // 2D DCT-II for top-left 8x8 low frequencies (u, v in 0..7)
+    const dct = [];
+    const cosTable = new Float64Array(N * 8);
+    for (let x = 0; x < N; x++) {
+      for (let u = 0; u < 8; u++) {
+        cosTable[x * 8 + u] = Math.cos(((2 * x + 1) * u * Math.PI) / (2 * N));
+      }
+    }
+
+    for (let u = 0; u < 8; u++) {
+      for (let v = 0; v < 8; v++) {
+        let sum = 0;
+        for (let y = 0; y < N; y++) {
+          const cy = cosTable[y * 8 + v];
+          const rowOffset = y * N;
+          for (let x = 0; x < N; x++) {
+            sum += gray[rowOffset + x] * cosTable[x * 8 + u] * cy;
+          }
+        }
+        dct.push(sum);
+      }
+    }
+
+    // Use 64 coefficients compared against median of the 63 AC coefficients
+    const ac = dct.slice(1).sort((a, b) => a - b);
+    const median = ac[Math.floor(ac.length / 2)] || 0;
+
+    let hex = '';
+    for (let i = 0; i < 64; i += 4) {
+      let nibble = 0;
+      for (let b = 0; b < 4; b++) {
+        if (dct[i + b] > median) nibble |= 1 << (3 - b);
+      }
+      hex += nibble.toString(16);
+    }
+    return hex;
+  } catch (err) {
+    console.warn('[receiptForensics] pHash computation failed:', err.message || err);
+    return null;
+  }
+}
+
+/**
+ * Computes Hamming distance between two 16-char hex pHashes (0 = identical, 64 = opposite).
+ * @param {string} hashA
+ * @param {string} hashB
+ * @returns {number}
+ */
+function hammingDistance(hashA, hashB) {
+  if (!hashA || !hashB || hashA.length !== hashB.length) return 64;
+  let dist = 0;
+  for (let i = 0; i < hashA.length; i++) {
+    let x = parseInt(hashA[i], 16) ^ parseInt(hashB[i], 16);
+    while (x > 0) {
+      dist += x & 1;
+      x >>= 1;
+    }
+  }
+  return dist;
+}
+
 module.exports = {
   scanImageMetadata,
   computeELA,
   analyzeReceiptForensics,
+  computePerceptualHash,
+  hammingDistance,
 };

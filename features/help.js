@@ -365,6 +365,8 @@ function buildStaffHelpEmbed() {
         value:
           '• `/config <view|set> [rate] [express] [lowstock]` — Dynamically update rates & fees without restarting\n' +
           '• `/find [order] [user] [robloxname]` — Look up orders, payment receipts, and customer details\n' +
+          '• `/searchlogs <query>` — Search closed ticket transcripts using natural language\n' +
+          '• `/handoff [public]` — Generate a 4-line staff handoff summary of the current ticket\n' +
           '• `/afk <set|off|status> [reason]` — Temporarily step away with auto-reply in tickets\n' +
           '• `/checkreceipt` — View extracted Ref No, Amount, and split payment history (staff only)\n' +
           '• `/addpayment <amount> [note] [reset]` — Record or adjust a partial/split payment on a ticket\n' +

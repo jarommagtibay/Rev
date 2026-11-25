@@ -6,6 +6,7 @@ const { COLOR, AUDIT_CHANNEL_ID, STICKERS, PAYEES } = require('../config');
 const client = require('./client');
 const { data, saveData, formatPeso, orderPriceText } = require('./data');
 const { getCustomerId } = require('./helpers');
+const { getTextEmbedding } = require('./ai');
 
 // Accounts newer than this are marked with a warning (common sign of scammers / alt accounts)
 const NEW_ACCOUNT_DAYS = 7;
@@ -616,13 +617,67 @@ async function logTicketTranscript(channel, closedByUser) {
       )
       .setTimestamp();
 
+    let sentAuditMsg = null;
     try {
-      await auditChannel.send({ embeds: [embed], files: [makeFile(true)], allowedMentions: { parse: [] } });
+      sentAuditMsg = await auditChannel.send({ embeds: [embed], files: [makeFile(true)], allowedMentions: { parse: [] } });
     } catch (err) {
       if (images.size === 0) throw err;
       // Most likely the file was too big with the pictures inside: send it with links instead
       console.warn('Transcript with pictures could not be uploaded, sending it without them:', err.message);
-      await auditChannel.send({ embeds: [embed], files: [makeFile(false)], allowedMentions: { parse: [] } });
+      sentAuditMsg = await auditChannel.send({ embeds: [embed], files: [makeFile(false)], allowedMentions: { parse: [] } });
+    }
+
+    // Index closed ticket summary + vector embedding for /searchlogs
+    try {
+      const orderId = (entry && entry.orderId) || 'REV-XXXX';
+      const paymentNotes =
+        entry && Array.isArray(entry.payments) && entry.payments.length > 0
+          ? entry.payments
+              .map((p) => `${p.provider || 'Transfer'} ₱${Number(p.amount || 0).toFixed(2)}${p.refNo ? ` (${p.refNo})` : ''}`)
+              .join(', ')
+          : entry?.lastScannedReceipt?.provider || '';
+      const receiptNote = entry?.lastScannedReceipt?.comparison?.message || '';
+      const msgSnippets = sorted
+        .filter((m) => !m.author.bot && m.content && m.content.trim())
+        .slice(-20)
+        .map((m) => `${m.author.username}: ${m.content.trim().slice(0, 120)}`)
+        .join(' | ');
+
+      const summaryText = [
+        `Ticket #${channel.name}`,
+        `Order #${orderId}`,
+        orderInfo,
+        entry?.username ? `Account: ${entry.username}` : '',
+        paymentNotes ? `Payments: ${paymentNotes}` : '',
+        receiptNote,
+        `Closed by @${closedByUser.username}`,
+        msgSnippets ? `Chat: ${msgSnippets}` : '',
+      ]
+        .filter(Boolean)
+        .join(' • ')
+        .slice(0, 1800);
+
+      const emb = await getTextEmbedding(summaryText);
+      if (!Array.isArray(data.transcriptIndex)) data.transcriptIndex = [];
+      data.transcriptIndex.push({
+        channelId: channel.id,
+        channelName: channel.name,
+        orderId,
+        customerId: customerId || null,
+        orderInfo,
+        summaryText,
+        transcriptUrl: sentAuditMsg ? sentAuditMsg.url : null,
+        auditMessageId: sentAuditMsg ? sentAuditMsg.id : null,
+        embedding: emb ? emb.vector : null,
+        embeddingModel: emb ? emb.model : null,
+        closedAt: Date.now(),
+      });
+      if (data.transcriptIndex.length > 2000) {
+        data.transcriptIndex = data.transcriptIndex.slice(-2000);
+      }
+      saveData();
+    } catch (idxErr) {
+      console.warn('Could not index ticket transcript for semantic search:', idxErr.message || idxErr);
     }
   } catch (err) {
     console.error('Could not log ticket transcript:', err);
