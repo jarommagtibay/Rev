@@ -38,62 +38,82 @@ const {
 
 const commands = [];
 
-// Vouch popup: message, optional rating and an optional picture as evidence
-function buildVouchModal(mainMessageId) {
+// Vouch popup: message, optional rating (if not already chosen via star button) and an optional picture as evidence
+function buildVouchModal(mainMessageId, presetRating = null) {
+  const customId = presetRating
+    ? `vouch_form:${mainMessageId}:${presetRating}`
+    : `vouch_form:${mainMessageId}`;
+  const title = presetRating
+    ? `Rate Order: ${'⭐'.repeat(presetRating)}`.slice(0, 45)
+    : 'Leave a Vouch';
+  const reviewLabel = presetRating
+    ? `Your Review (${presetRating} ⭐ rating selected)`
+    : 'Your vouch';
+
   const modal = new ModalBuilder()
-    .setCustomId(`vouch_form:${mainMessageId}`)
-    .setTitle('Leave a Vouch');
+    .setCustomId(customId)
+    .setTitle(title);
 
   // Older discord.js: no picture upload, classic layout
   if (!FileUploadBuilder || !LabelBuilder) {
     const messageInput = new TextInputBuilder()
       .setCustomId('vouch_message')
-      .setLabel('Your vouch')
-      .setPlaceholder('e.g. Fast and legit, thank you!')
+      .setLabel(reviewLabel)
+      .setPlaceholder('e.g. Fast delivery, trusted seller! Thank you!')
       .setStyle(TextInputStyle.Paragraph)
       .setRequired(true)
       .setMaxLength(500);
 
-    const ratingInput = new TextInputBuilder()
-      .setCustomId('vouch_rating')
-      .setLabel('Rating from 1 to 5 (optional)')
-      .setPlaceholder('5')
-      .setStyle(TextInputStyle.Short)
-      .setRequired(false)
-      .setMaxLength(1);
+    const rows = [new ActionRowBuilder().addComponents(messageInput)];
+    if (!presetRating) {
+      const ratingInput = new TextInputBuilder()
+        .setCustomId('vouch_rating')
+        .setLabel('Rating from 1 to 5 (optional)')
+        .setPlaceholder('5')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(1);
+      rows.push(new ActionRowBuilder().addComponents(ratingInput));
+    }
 
-    return modal.addComponents(
-      new ActionRowBuilder().addComponents(messageInput),
-      new ActionRowBuilder().addComponents(ratingInput)
-    );
+    return modal.addComponents(...rows);
   }
 
   const messageInput = new TextInputBuilder()
     .setCustomId('vouch_message')
-    .setPlaceholder('e.g. Fast and legit, thank you!')
+    .setPlaceholder('e.g. Fast delivery, trusted seller! Thank you!')
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
     .setMaxLength(500);
 
-  const ratingInput = new TextInputBuilder()
-    .setCustomId('vouch_rating')
-    .setPlaceholder('5')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(false)
-    .setMaxLength(1);
-
   const pictureUpload = new FileUploadBuilder().setCustomId('vouch_proof').setRequired(false);
 
-  return modal.addLabelComponents(
-    new LabelBuilder().setLabel('Your vouch').setTextInputComponent(messageInput),
-    new LabelBuilder()
-      .setLabel('Rating from 1 to 5 (optional)')
-      .setTextInputComponent(ratingInput),
+  const labels = [
+    new LabelBuilder().setLabel(reviewLabel).setTextInputComponent(messageInput),
+  ];
+
+  if (!presetRating) {
+    const ratingInput = new TextInputBuilder()
+      .setCustomId('vouch_rating')
+      .setPlaceholder('5')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setMaxLength(1);
+    labels.push(
+      new LabelBuilder()
+        .setLabel('Rating from 1 to 5 (optional)')
+        .setTextInputComponent(ratingInput)
+    );
+  }
+
+  labels.push(
     new LabelBuilder()
       .setLabel('Picture (optional)')
       .setDescription('Attach a screenshot as evidence')
       .setFileUploadComponent(pictureUpload)
   );
+
+  return modal.addLabelComponents(...labels);
 }
 
 // Star rating buttons (1 to 5 ⭐)
@@ -115,20 +135,7 @@ async function starVouchButton(interaction) {
   const [, stars, mainMessageId] = interaction.customId.split(':');
   const rating = Number(stars) || 5;
 
-  const modal = new ModalBuilder()
-    .setCustomId(`vouch_form:${mainMessageId}:${rating}`)
-    .setTitle(`Rate Order: ${'⭐'.repeat(rating)}`.slice(0, 45));
-
-  const messageInput = new TextInputBuilder()
-    .setCustomId('vouch_message')
-    .setLabel(`Your Review (${rating} ⭐ rating selected)`)
-    .setPlaceholder('e.g. Fast delivery, trusted seller! Thank you!')
-    .setStyle(TextInputStyle.Paragraph)
-    .setRequired(true)
-    .setMaxLength(500);
-
-  modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-  return interaction.showModal(modal);
+  return interaction.showModal(buildVouchModal(mainMessageId, rating));
 }
 
 // Vouch button (in the bottom message) -> only the customer of this ticket
