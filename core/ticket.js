@@ -72,6 +72,35 @@ function setPaymentField(embed, value) {
   embed.setFields(fields);
 }
 
+// Updates or removes the Payment Progress field (tracks partial/split transfers vs remaining balance)
+function setPaymentProgressField(embed, amountPaid, orderTotal, paymentCount = 1) {
+  const fields = (embed.data.fields || []).filter((f) => f.name !== 'Payment Progress');
+  const paid = Number(amountPaid) || 0;
+  const total = Number(orderTotal) || 0;
+
+  if (paid > 0 && total > 0) {
+    const remaining = Math.max(0, total - paid);
+    const countNote = paymentCount > 1 ? ` (${paymentCount} transfers)` : '';
+    let value;
+    if (remaining > 0.01) {
+      value = `Paid: **${CURRENCY}${paid.toFixed(2)}** / **${CURRENCY}${total.toFixed(2)}**${countNote}\nRemaining: **${CURRENCY}${remaining.toFixed(2)}** ⏳`;
+    } else if (paid > total + 0.01) {
+      value = `Paid: **${CURRENCY}${paid.toFixed(2)}** / **${CURRENCY}${total.toFixed(2)}**${countNote} ✅ (+${CURRENCY}${(paid - total).toFixed(2)})`;
+    } else {
+      value = `Paid: **${CURRENCY}${paid.toFixed(2)}** / **${CURRENCY}${total.toFixed(2)}**${countNote} ✅ Paid in Full`;
+    }
+
+    const field = { name: 'Payment Progress', value, inline: false };
+    let index = fields.findIndex((f) => f.name === 'Payment');
+    if (index === -1) index = fields.findIndex((f) => f.name === 'Status');
+    if (index === -1) index = fields.findIndex((f) => f.name === 'Vouch');
+    if (index === -1) fields.push(field);
+    else fields.splice(index, 0, field);
+  }
+
+  embed.setFields(fields);
+}
+
 function getAmount(embed) {
   const field = (embed.data.fields || []).find((f) => f.name === 'Robux Amount');
   return field ? Number(field.value.replace(/,/g, '')) : 0;
@@ -204,7 +233,7 @@ async function postReceipt(embed, ticketChannel) {
     } else {
       gameName = get('Game') !== '-' ? get('Game') : 'Mobile Games';
       productName = `${get('Package')} (${gameName})`;
-      const skip = new Set(['Opened by', 'Queue Position', 'Payment', 'Status', 'Vouch', 'Game', 'Package', 'Price', 'Order ID']);
+      const skip = new Set(['Opened by', 'Queue Position', 'Payment', 'Payment Progress', 'Status', 'Vouch', 'Game', 'Package', 'Price', 'Order ID']);
       const details = fields
         .filter((f) => !skip.has(f.name))
         .map((f) => `${f.name}: ${clean(f.value)}`);
@@ -437,6 +466,7 @@ module.exports = {
   isPaid,
   isRobuxOrder,
   setPaymentField,
+  setPaymentProgressField,
   getAmount,
   ticketRows,
   vouchRow,

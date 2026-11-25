@@ -28,6 +28,7 @@ const {
   stageFromEmbed,
   isPaid,
   setPaymentField,
+  setPaymentProgressField,
   getAmount,
   isRobuxOrder,
   ticketRows,
@@ -74,6 +75,10 @@ async function markPaymentReceivedUnlocked(message, channel, user) {
   const entry = data.queue.find((e) => e.channelId === channel.id);
   if (entry) {
     entry.paidAt = Date.now();
+    if (entry.price > 0 && entry.amountPaid > 0 && entry.amountPaid < entry.price) {
+      entry.amountPaid = entry.price;
+      setPaymentProgressField(embed, entry.amountPaid, entry.price, (entry.payments && entry.payments.length) || 1);
+    }
     saveData();
   }
   await message.edit({

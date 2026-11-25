@@ -366,7 +366,8 @@ function buildStaffHelpEmbed() {
           '• `/config <view|set> [rate] [express] [lowstock]` — Dynamically update rates & fees without restarting\n' +
           '• `/find [order] [user] [robloxname]` — Look up orders, payment receipts, and customer details\n' +
           '• `/afk <set|off|status> [reason]` — Temporarily step away with auto-reply in tickets\n' +
-          '• `/checkreceipt` — View extracted Ref No and Amount of this ticket receipt (staff only)\n' +
+          '• `/checkreceipt` — View extracted Ref No, Amount, and split payment history (staff only)\n' +
+          '• `/addpayment <amount> [note] [reset]` — Record or adjust a partial/split payment on a ticket\n' +
           '• `/duty <on|off|status> [note]` — Toggle staff on/off duty status (shows off-duty notice if all staff off-duty)\n' +
           '• `/staffstats` — Show leaderboard of processed, sent and completed orders per staff member\n' +
           '• `/report [today|week|all]` — Generate total revenue and sales volume report\n' +

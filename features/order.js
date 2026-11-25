@@ -29,6 +29,7 @@ const {
   orderHeadline,
   setPositionField,
   setStatusField,
+  setPaymentProgressField,
   stageFromEmbed,
   getAmount,
   isPaid,
@@ -259,6 +260,9 @@ async function editGameSelect(interaction) {
     return f;
   });
   embed.setFields(fields);
+  if (entry.amountPaid > 0) {
+    setPaymentProgressField(embed, entry.amountPaid, pkg.price, (entry.payments && entry.payments.length) || 1);
+  }
   embed.setDescription(orderHeadline(`${pkg.label}  •  ${game.name}`, formatPeso(pkg.price), '🎮'));
   await message.edit({ embeds: [embed] });
 
@@ -348,6 +352,9 @@ async function editOrderForm(interaction) {
     return f;
   });
   embed.setFields(fields);
+  if (entry.amountPaid > 0) {
+    setPaymentProgressField(embed, entry.amountPaid, price, (entry.payments && entry.payments.length) || 1);
+  }
   embed.setDescription(orderHeadline(`${amount.toLocaleString()} Robux`, formatPeso(price)));
   embed.setFooter({ text: `Rate: ${CURRENCY}${data.rate} per 100 Robux` });
   await message.edit({ embeds: [embed] });
