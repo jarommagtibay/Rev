@@ -21,6 +21,9 @@ const UNVOUCHED_ROLE_ID = env.UNVOUCHED_ROLE_ID || '';
 const UNVOUCHED_CATEGORY_ID = env.UNVOUCHED_CATEGORY_ID || '';
 const LOW_STOCK_THRESHOLD = Number(env.LOW_STOCK_THRESHOLD) || 500;
 const EXPRESS_FEE = Number(env.EXPRESS_FEE) || 15;
+const GEMINI_API_KEY = env.GEMINI_API_KEY || '';
+const OPENAI_API_KEY = env.OPENAI_API_KEY || '';
+const VISION_MODE = (env.VISION_MODE || 'fallback').toLowerCase(); // 'fallback' | 'always' | 'off'
 
 const ROOT = __dirname;
 
@@ -86,6 +89,9 @@ module.exports = {
   UNVOUCHED_CATEGORY_ID,
   LOW_STOCK_THRESHOLD,
   EXPRESS_FEE,
+  GEMINI_API_KEY,
+  OPENAI_API_KEY,
+  VISION_MODE,
   ROOT,
   CURRENCY,
   MAX_TICKETS_PER_PRODUCT,

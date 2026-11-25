@@ -167,21 +167,37 @@ async function runCheckReceipt(interaction) {
           : '')
       : '';
 
-  const embedColor = scanned.isDuplicate
-    ? 0xff0000
-    : scanned.isFailed || (scanned.comparison && scanned.comparison.status === 'underpaid')
-    ? 0xff9900
-    : COLOR;
+  const embedColor =
+    scanned.isDuplicate || (scanned.forensics && scanned.forensics.riskLevel === 'high')
+      ? 0xff0000
+      : scanned.isFailed ||
+        (scanned.comparison && scanned.comparison.status === 'underpaid') ||
+        (scanned.forensics && scanned.forensics.riskLevel === 'medium')
+      ? 0xff9900
+      : COLOR;
+
+  const tamperLine = scanned.forensics
+    ? `• **Tamper Check:** ${scanned.forensics.badge}${
+        scanned.forensics.reasons && scanned.forensics.reasons.length > 0
+          ? `\n  ↳ ${scanned.forensics.reasons.join('\n  ↳ ')}`
+          : ''
+      }\n`
+    : '';
+  const visionLines =
+    (scanned.recipientName ? `• **Recipient:** \`${scanned.recipientName}\`\n` : '') +
+    (scanned.dateTime ? `• **Receipt Time:** \`${scanned.dateTime}\`\n` : '');
 
   const embed = new EmbedBuilder()
     .setColor(embedColor)
     .setTitle('🧾  Staff Receipt Details (Staff Only)')
     .setDescription(
-      `• **Bank / App:** ${providerText}\n` +
+      `• **Bank / App:** ${providerText}${scanned.parsedBy ? ` *(${scanned.parsedBy})*` : ''}\n` +
       `• **Ref No:** ${refText}\n` +
       `• **Receipt Amount:** ${amountText}\n` +
       `• **Order Total:** ${expectedText}\n` +
+      visionLines +
       `• **Price Comparison:** ${comparisonBadge}\n` +
+      tamperLine +
       `• **Duplicate Check:** ${dupText}\n` +
       (scanned.isFailed ? `• **Status:** ⚠️ **Failed / Incomplete Transfer**\n` : '') +
       `• **Scanned:** <t:${Math.floor(scanned.timestamp / 1000)}:R>` +

@@ -1,6 +1,8 @@
 // GCash & Maya Receipt Scanner & Reference Number Extractor
-// Extracts Reference Numbers and Amounts from payment screenshots using OCR & smart regex.
-// Falls back gracefully if tesseract.js is not installed.
+// Extracts Reference Numbers and Amounts from payment screenshots using OCR & smart regex,
+// with AI Vision fallback (Gemini / OpenAI) when OCR confidence is low.
+const { VISION_MODE } = require('../config');
+const { isVisionAvailable, analyzeReceiptWithVision } = require('./receiptVision');
 
 let Tesseract = null;
 try {
@@ -330,12 +332,27 @@ function checkIsReceipt(rawText, refNo, amount, attachmentName = '', messageCont
 
 /**
  * Main extractor: parses reference number and amount from image buffer and fallback text.
+ * Runs Tesseract OCR first, then falls back to AI Vision if OCR confidence is low (or VISION_MODE=always).
  * @param {Buffer} [imageBuffer]
  * @param {string} [fallbackText]
  * @param {string} [attachmentName]
- * @returns {Promise<{ refNo: string|null, amount: string|null, rawText: string, ocrAvailable: boolean, isReceipt: boolean, isFailed: boolean, provider: string }>}
+ * @param {string} [mimeType]
+ * @returns {Promise<{
+ *   refNo: string|null,
+ *   amount: string|null,
+ *   amountValue: number|null,
+ *   rawText: string,
+ *   ocrAvailable: boolean,
+ *   isReceipt: boolean,
+ *   isFailed: boolean,
+ *   provider: string,
+ *   recipientName: string|null,
+ *   dateTime: string|null,
+ *   visualTamperFlags: string[],
+ *   parsedBy: string
+ * }>}
  */
-async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentName = '') {
+async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentName = '', mimeType = 'image/png') {
   let rawText = fallbackText || '';
   const ocrAvailable = Boolean(Tesseract);
 
@@ -346,13 +363,41 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentN
     }
   }
 
-  const refNo = findReferenceNumber(rawText);
+  let refNo = findReferenceNumber(rawText);
   const amountDetails = parseAmountDetails(rawText);
-  const amount = amountDetails.formatted;
-  const amountValue = amountDetails.value;
-  const isReceipt = checkIsReceipt(rawText, refNo, amount, attachmentName, fallbackText);
-  const isFailed = checkIsFailedTransaction(rawText);
-  const provider = detectProvider(rawText);
+  let amount = amountDetails.formatted;
+  let amountValue = amountDetails.value;
+  let isReceipt = checkIsReceipt(rawText, refNo, amount, attachmentName, fallbackText);
+  let isFailed = checkIsFailedTransaction(rawText);
+  let provider = detectProvider(rawText);
+  let recipientName = null;
+  let dateTime = null;
+  let visualTamperFlags = [];
+  let parsedBy = ocrAvailable ? 'OCR' : 'Regex';
+
+  // Smart Vision fallback: run when OCR missed key fields, text is sparse/unreadable, or VISION_MODE=always
+  const lowConfidence = !amountValue || !refNo || !isReceipt || rawText.trim().length < 35;
+  if (imageBuffer && isVisionAvailable() && (VISION_MODE === 'always' || lowConfidence)) {
+    const vision = await analyzeReceiptWithVision(imageBuffer, mimeType);
+    if (vision) {
+      parsedBy = ocrAvailable ? 'OCR + AI Vision' : 'AI Vision';
+      if (vision.isReceipt) isReceipt = true;
+      if (vision.isFailed) isFailed = true;
+      if (!refNo && vision.refNo) refNo = vision.refNo;
+      if (!amountValue && vision.amountValue) {
+        amountValue = vision.amountValue;
+        amount = vision.amountFormatted;
+      }
+      if (provider === 'E-Wallet / Bank' && vision.provider) {
+        provider = vision.provider;
+      }
+      if (vision.recipientName) recipientName = vision.recipientName;
+      if (vision.dateTime) dateTime = vision.dateTime;
+      if (vision.visualTamperFlags && vision.visualTamperFlags.length > 0) {
+        visualTamperFlags = vision.visualTamperFlags;
+      }
+    }
+  }
 
   return {
     refNo,
@@ -363,6 +408,10 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentN
     isReceipt,
     isFailed,
     provider,
+    recipientName,
+    dateTime,
+    visualTamperFlags,
+    parsedBy,
   };
 }
 

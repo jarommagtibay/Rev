@@ -11,6 +11,7 @@ const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL, isStaff } = require('./core/helpers');
 const { extractReceiptDetails, comparePaymentPrice } = require('./core/receiptScanner');
+const { analyzeReceiptForensics } = require('./core/receiptForensics');
 const { checkUnvouchedInterval } = require('./core/unvouched');
 const { repositionSticky, clearSticky } = require('./core/sticky');
 const { setPaymentProgressField } = require('./core/ticket');
@@ -294,15 +295,40 @@ client.on(Events.MessageCreate, async (message) => {
           const buf = Buffer.from(await imgRes.arrayBuffer());
           const imgHash = crypto.createHash('sha256').update(buf).digest('hex');
 
-          // Auto-scan GCash / Maya Reference Number & Amount
+          // Auto-scan GCash / Maya Reference Number & Amount (OCR + AI Vision fallback)
           try {
-            scanResult = await extractReceiptDetails(buf, message.content, imgAttachment.name);
+            scanResult = await extractReceiptDetails(
+              buf,
+              message.content,
+              imgAttachment.name,
+              imgAttachment.contentType || 'image/png'
+            );
           } catch (scanErr) {
             console.warn('Receipt text extraction warning:', scanErr);
           }
 
           // If the image is not a payment receipt (e.g. customer avatar, profile screenshot, meme), ignore it!
           if (!scanResult.isReceipt) return;
+
+          // Run Tampered / Edited Receipt Forensics (Metadata + ELA + AI visual cues)
+          let forensics = {
+            riskScore: 0,
+            riskLevel: 'low',
+            badge: '✅ Clean',
+            reasons: [],
+            detectedEditors: [],
+            ela: null,
+            heatmapAttachment: null,
+          };
+          try {
+            forensics = await analyzeReceiptForensics(
+              buf,
+              imgAttachment.name,
+              scanResult.visualTamperFlags || []
+            );
+          } catch (forErr) {
+            console.warn('Receipt forensics warning:', forErr.message || forErr);
+          }
 
           // Check if the screenshot is a FAILED / UNPROCESSED transaction (e.g. "Unable to Send Money")
           if (scanResult.isFailed) {
@@ -502,10 +528,28 @@ client.on(Events.MessageCreate, async (message) => {
                     ? `• **Total Paid So Far:** **₱${entry.amountPaid.toFixed(2)}** (${paymentCount} transfers)\n`
                     : '';
 
+                const visionExtraLines =
+                  (scanResult.recipientName ? `• **Recipient:** \`${scanResult.recipientName}\`\n` : '') +
+                  (scanResult.dateTime ? `• **Receipt Time:** \`${scanResult.dateTime}\`\n` : '');
+
+                const tamperReasonsText =
+                  forensics.reasons.length > 0
+                    ? `\n  ↳ ${forensics.reasons.join('\n  ↳ ')}`
+                    : '';
+
+                if (forensics.riskLevel === 'high') {
+                  embedColor = 0xff0000;
+                  auditContent = `<@&${STAFF_ROLE_ID}> 🚨 **POSSIBLE EDITED / TAMPERED RECEIPT in #${message.channel.name}!**\n${auditContent || ''}`.trim();
+                } else if (forensics.riskLevel === 'medium' && embedColor !== 0xff3333) {
+                  embedColor = 0xff9900;
+                }
+
                 const logEmbed = new EmbedBuilder()
                   .setColor(embedColor)
                   .setTitle(
-                    comparison.status === 'underpaid'
+                    forensics.riskLevel === 'high'
+                      ? `🚨  Tamper Alert on Receipt: #${message.channel.name}`
+                      : comparison.status === 'underpaid'
                       ? `⚠️  Receipt Scanned (Underpaid): #${message.channel.name}`
                       : paymentCount > 1 && comparison.status !== 'underpaid'
                       ? `✅  Split Payment Complete: #${message.channel.name}`
@@ -513,12 +557,14 @@ client.on(Events.MessageCreate, async (message) => {
                   )
                   .setDescription(
                     `A payment screenshot was submitted in **#${message.channel.name}** (<#${message.channel.id}>):\n\n` +
-                    `• **Bank / App:** ${scanResult.provider}\n` +
+                    `• **Bank / App:** ${scanResult.provider} *(${scanResult.parsedBy || 'OCR'})*\n` +
                     `• **Ref No:** ${refDisplay}\n` +
                     `• **This Receipt:** ${amountDisplay}\n` +
                     splitSummaryLine +
                     `• **Order Total:** ${expectedDisplay}\n` +
+                    visionExtraLines +
                     `${comparisonLine}\n` +
+                    `• **Tamper Check:** ${forensics.badge}${tamperReasonsText}\n` +
                     `• **Duplicate Check:** ✅ **Unique Receipt** (First time seen)\n` +
                     `• **Customer:** <@${message.author.id}> (\`${message.author.id}\`)\n` +
                     `• **Ticket Channel:** #${message.channel.name} (<#${message.channel.id}>)\n` +
@@ -528,7 +574,13 @@ client.on(Events.MessageCreate, async (message) => {
                   .setFooter({ text: 'Staff-Only Receipt Log • Reveux Shop' })
                   .setTimestamp();
 
-                await auditChan.send({ content: auditContent, embeds: [logEmbed] });
+                const auditPayload = { content: auditContent, embeds: [logEmbed] };
+                if (forensics.heatmapAttachment) {
+                  logEmbed.setImage(`attachment://${forensics.heatmapAttachment.name}`);
+                  auditPayload.files = [forensics.heatmapAttachment];
+                }
+
+                await auditChan.send(auditPayload);
               }
             }
 
@@ -543,6 +595,15 @@ client.on(Events.MessageCreate, async (message) => {
                 expectedPrice,
                 comparison,
                 provider: scanResult.provider,
+                recipientName: scanResult.recipientName || null,
+                dateTime: scanResult.dateTime || null,
+                parsedBy: scanResult.parsedBy || 'OCR',
+                forensics: {
+                  riskScore: forensics.riskScore,
+                  riskLevel: forensics.riskLevel,
+                  badge: forensics.badge,
+                  reasons: forensics.reasons,
+                },
                 isFailed: scanResult.isFailed,
                 isDuplicate,
                 newPaymentRecorded,
