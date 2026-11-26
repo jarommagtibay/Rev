@@ -5,7 +5,7 @@ function isLLMAvailable() {
   return Boolean(GEMINI_API_KEY || OPENAI_API_KEY);
 }
 
-async function generateTextWithLLM(prompt) {
+async function generateTextWithLLM(prompt, { maxTokens = 500, timeout = 20000 } = {}) {
   if (!isLLMAvailable()) return null;
 
   if (GEMINI_API_KEY) {
@@ -17,10 +17,10 @@ async function generateTextWithLLM(prompt) {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(timeout),
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 350 },
+            generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens },
           }),
         });
         if (res.ok) {
@@ -42,11 +42,11 @@ async function generateTextWithLLM(prompt) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(timeout),
         body: JSON.stringify({
           model: 'gpt-4o-mini',
           temperature: 0.2,
-          max_tokens: 350,
+          max_tokens: maxTokens,
           messages: [{ role: 'user', content: prompt }],
         }),
       });
@@ -61,6 +61,60 @@ async function generateTextWithLLM(prompt) {
   }
 
   return null;
+}
+
+/**
+ * Fetches ALL messages from a ticket channel and formats them as a readable transcript.
+ * Discord API caps at 100 per fetch, so we page backwards until we have everything.
+ * skipMessageId = the main order card message to skip.
+ * Returns a string transcript (oldest to newest).
+ */
+async function fetchFullTicketTranscript(channel, skipMessageId = null) {
+  const allMessages = [];
+  let lastId = null;
+
+  // Page through the channel in batches of 100 (Discord API max)
+  for (let i = 0; i < 20; i++) { // safety cap: 2000 messages max
+    const options = { limit: 100 };
+    if (lastId) options.before = lastId;
+    const batch = await channel.messages.fetch(options).catch(() => null);
+    if (!batch || batch.size === 0) break;
+    allMessages.push(...batch.values());
+    lastId = batch.last()?.id;
+    if (batch.size < 100) break; // reached the beginning
+  }
+
+  // Sort oldest first
+  allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+  const lines = [];
+  for (const m of allMessages) {
+    if (skipMessageId && m.id === skipMessageId) continue;
+
+    const parts = [];
+    const content = (m.content || '').trim();
+    if (content) parts.push(content);
+
+    // Include embed titles, descriptions, and field values so AI sees receipt scans, payment info, etc.
+    for (const emb of (m.embeds || [])) {
+      if (emb.title) parts.push(`[${emb.title}]`);
+      if (emb.description) parts.push(emb.description.slice(0, 300));
+      for (const f of (emb.fields || emb.data?.fields || [])) {
+        parts.push(`${f.name}: ${f.value}`.slice(0, 200));
+      }
+    }
+
+    if (m.attachments?.size) parts.push(`[${m.attachments.size} attachment(s)]`);
+
+    const lineText = parts.join(' ').trim();
+    if (!lineText) continue;
+
+    const author = m.author.bot ? 'Bot' : `@${m.author.username}`;
+    const time = new Date(m.createdTimestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+    lines.push(`[${time}] ${author}: ${lineText.slice(0, 500)}`);
+  }
+
+  return lines.join('\n');
 }
 
 /**
@@ -221,6 +275,60 @@ async function getTextEmbedding(text) {
   }
 
   return null;
+}
+
+/**
+ * Fetches ALL messages from a ticket channel and formats them as a readable transcript.
+ * Discord API caps at 100 per fetch, so we page backwards until we have everything.
+ * skipMessageId = the main order card message to skip.
+ * Returns a string transcript (oldest to newest).
+ */
+async function fetchFullTicketTranscript(channel, skipMessageId = null) {
+  const allMessages = [];
+  let lastId = null;
+
+  // Page through the channel in batches of 100 (Discord API max)
+  for (let i = 0; i < 20; i++) { // safety cap: 2000 messages max
+    const options = { limit: 100 };
+    if (lastId) options.before = lastId;
+    const batch = await channel.messages.fetch(options).catch(() => null);
+    if (!batch || batch.size === 0) break;
+    allMessages.push(...batch.values());
+    lastId = batch.last()?.id;
+    if (batch.size < 100) break; // reached the beginning
+  }
+
+  // Sort oldest first
+  allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+  const lines = [];
+  for (const m of allMessages) {
+    if (skipMessageId && m.id === skipMessageId) continue;
+
+    const parts = [];
+    const content = (m.content || '').trim();
+    if (content) parts.push(content);
+
+    // Include embed titles, descriptions, and field values so AI sees receipt scans, payment info, etc.
+    for (const emb of (m.embeds || [])) {
+      if (emb.title) parts.push(`[${emb.title}]`);
+      if (emb.description) parts.push(emb.description.slice(0, 300));
+      for (const f of (emb.fields || emb.data?.fields || [])) {
+        parts.push(`${f.name}: ${f.value}`.slice(0, 200));
+      }
+    }
+
+    if (m.attachments?.size) parts.push(`[${m.attachments.size} attachment(s)]`);
+
+    const lineText = parts.join(' ').trim();
+    if (!lineText) continue;
+
+    const author = m.author.bot ? 'Bot' : `@${m.author.username}`;
+    const time = new Date(m.createdTimestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+    lines.push(`[${time}] ${author}: ${lineText.slice(0, 500)}`);
+  }
+
+  return lines.join('\n');
 }
 
 function cosineSimilarity(a, b) {
@@ -512,6 +620,7 @@ async function generateAnnouncement({ topic, rate, stock }) {
 
 module.exports = {
   isLLMAvailable,
+  fetchFullTicketTranscript,
   summarizeTicketHandoff,
   analyzeTicketForCopilot,
   generateAnnouncement,

@@ -5,6 +5,7 @@ const { data } = require('../core/data');
 const { EPHEMERAL, isStaff } = require('../core/helpers');
 const { stageFromEmbed, isPaid } = require('../core/ticket');
 const { summarizeTicketHandoff } = require('../core/ai');
+const { fetchFullTicketTranscript } = require('../core/ai');
 
 const commands = [
   new SlashCommandBuilder()
@@ -60,21 +61,8 @@ async function runHandoff(interaction) {
     }
   }
 
-  // Fetch recent messages (up to 80) for context
-  const fetched = await channel.messages.fetch({ limit: 80 }).catch(() => null);
-  const lines = [];
-  if (fetched) {
-    const sorted = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-    for (const m of sorted) {
-      if (m.id === entry?.messageId) continue; // skip the main order card itself
-      const content = (m.content || '').trim();
-      const embedTitle = m.embeds?.[0]?.title ? `[${m.embeds[0].title}]` : '';
-      const attCount = m.attachments?.size ? ` [${m.attachments.size} attachment(s)]` : '';
-      const lineText = [content, embedTitle, attCount].filter(Boolean).join(' ').trim();
-      if (!lineText) continue;
-      lines.push(`${m.author.bot ? 'Bot' : '@' + m.author.username}: ${lineText.slice(0, 220)}`);
-    }
-  }
+  // Fetch the FULL ticket conversation for maximum context
+  const transcript = await fetchFullTicketTranscript(channel, entry?.messageId);
 
   const sticky = (data.sticky && data.sticky[channel.id]) || {};
   const result = await summarizeTicketHandoff({
@@ -89,7 +77,7 @@ async function runHandoff(interaction) {
     stickyNote: sticky.note?.text || null,
     stickyRemind: sticky.remind?.type || null,
     lastReceipt: entry?.lastScannedReceipt || null,
-    transcriptSnippet: lines.slice(-35).join('\n'),
+    transcriptSnippet: transcript,
   });
 
   const embed = new EmbedBuilder()
