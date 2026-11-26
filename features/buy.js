@@ -91,11 +91,20 @@ async function showChoice(interaction) {
 }
 
 // Choice button -> show the form for the chosen option
-async function showForm(interaction) {
+async function showForm(interaction, presetRobuxAmount = null) {
   if (hasUnvouchedBuyer(interaction.user.id)) {
     const buyer = getUnvouchedBuyer(interaction.user.id);
     return interaction.reply({
       ...buildUnvouchedBlockEmbed(buyer),
+      flags: EPHEMERAL,
+    });
+  }
+
+  if (isBlacklisted(interaction.user.id)) {
+    const entry = (data.blacklist || []).find((b) => b.userId === interaction.user.id);
+    const reason = entry && entry.reason ? `\nReason: **${entry.reason}**` : '';
+    return interaction.reply({
+      content: `🚫 You are blacklisted from opening tickets in this shop.${reason}`,
       flags: EPHEMERAL,
     });
   }
@@ -114,7 +123,7 @@ async function showForm(interaction) {
     return interaction.reply({ content: limitMessage, flags: EPHEMERAL });
   }
 
-  const mode = interaction.customId === 'buy_by_robux' ? 'robux' : 'price';
+  const mode = presetRobuxAmount !== null || interaction.customId === 'buy_by_robux' ? 'robux' : 'price';
 
   const modal = new ModalBuilder()
     .setCustomId(`robux_form:${mode}`)
@@ -141,6 +150,9 @@ async function showForm(interaction) {
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMaxLength(10);
+  if (presetRobuxAmount !== null) {
+    valueInput.setValue(String(presetRobuxAmount));
+  }
 
   const promoInput = new TextInputBuilder()
     .setCustomId('promo_code')
@@ -417,4 +429,4 @@ async function handle(interaction) {
   return false;
 }
 
-module.exports = { commands, handle };
+module.exports = { commands, handle, showForm };

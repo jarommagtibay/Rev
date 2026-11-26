@@ -1,11 +1,18 @@
 // /c -> Robux calculator for everyone. Only the person who used it can see the answer.
 // Give robux = see the price. Give price = see how much Robux you get.
 // Wording is in messages.js (calculator section)
-const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  SlashCommandBuilder,
+} = require('discord.js');
 const { CURRENCY, COLOR } = require('../config');
 const M = require('../messages');
 const { data, formatPrice } = require('../core/data');
 const { EPHEMERAL, fill, parseOrderAmount } = require('../core/helpers');
+const { showForm } = require('./buy');
 
 const commands = [
   new SlashCommandBuilder()
@@ -52,6 +59,8 @@ async function runCalc(interaction) {
       ? fill(T.overStock, { stock: data.stock.toLocaleString() })
       : fill(T.inStock);
 
+  const gamepassPrice = Math.ceil(amount / 0.7);
+
   const embed = new EmbedBuilder()
     .setColor(COLOR)
     .setTitle(fill(T.title))
@@ -63,17 +72,44 @@ async function runCalc(interaction) {
         value: `\`\`\`${CURRENCY}${data.rate} / 100 Robux\`\`\``,
         inline: true,
       },
+      {
+        name: '🎟️  Gamepass Price (30% Tax)',
+        value: `\`\`\`${gamepassPrice.toLocaleString()} R$\`\`\``,
+        inline: true,
+      },
       { name: T.availabilityLabel, value: availability }
     )
     .setTimestamp();
   if (T.footer) embed.setFooter({ text: T.footer });
 
-  return interaction.reply({ embeds: [embed], flags: EPHEMERAL });
+  const components = [];
+  if (data.shopOpen && amount <= data.stock) {
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`calc_order:${amount}`)
+          .setLabel('Open Ticket for This')
+          .setEmoji('🛒')
+          .setStyle(ButtonStyle.Success)
+      )
+    );
+  }
+
+  return interaction.reply({ embeds: [embed], components, flags: EPHEMERAL });
 }
 
 async function handle(interaction) {
   if (interaction.isChatInputCommand() && interaction.commandName === M.commandNames.calc) {
     await runCalc(interaction);
+    return true;
+  }
+  if (interaction.isButton() && interaction.customId.startsWith('calc_order:')) {
+    const amount = Number(interaction.customId.split(':')[1]);
+    if (!Number.isFinite(amount) || amount < 1) {
+      await interaction.reply({ content: 'Invalid Robux amount.', flags: EPHEMERAL });
+      return true;
+    }
+    await showForm(interaction, amount);
     return true;
   }
   return false;
