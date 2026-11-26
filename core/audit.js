@@ -658,6 +658,9 @@ async function logTicketTranscript(channel, closedByUser) {
         .slice(0, 1800);
 
       const emb = await getTextEmbedding(summaryText);
+      const compactVector = emb && Array.isArray(emb.vector)
+        ? emb.vector.map((v) => Math.round(v * 1e5) / 1e5)
+        : null;
       if (!Array.isArray(data.transcriptIndex)) data.transcriptIndex = [];
       data.transcriptIndex.push({
         channelId: channel.id,
@@ -668,12 +671,12 @@ async function logTicketTranscript(channel, closedByUser) {
         summaryText,
         transcriptUrl: sentAuditMsg ? sentAuditMsg.url : null,
         auditMessageId: sentAuditMsg ? sentAuditMsg.id : null,
-        embedding: emb ? emb.vector : null,
+        embedding: compactVector,
         embeddingModel: emb ? emb.model : null,
         closedAt: Date.now(),
       });
-      if (data.transcriptIndex.length > 2000) {
-        data.transcriptIndex = data.transcriptIndex.slice(-2000);
+      if (data.transcriptIndex.length > 500) {
+        data.transcriptIndex = data.transcriptIndex.slice(-500);
       }
       saveData();
     } catch (idxErr) {

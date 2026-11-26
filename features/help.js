@@ -361,21 +361,25 @@ function buildStaffHelpEmbed() {
           `• **Close Ticket:** Generates HTML transcript for \`#ticket-logs\` and deletes channel (staff only)`,
       },
       {
-        name: '🛡️  Staff Tools & Moderation',
+        name: '🔍  AI, Lookup & Receipt Tools',
         value:
-          '• `/config <view|set> [rate] [express] [lowstock]` — Dynamically update rates & fees without restarting\n' +
-          '• `/find [order] [user] [robloxname]` — Look up orders, payment receipts, and customer details\n' +
+          '• `/config <view|set> [rate] [express] [lowstock]` — Update rates & fees without restarting\n' +
+          '• `/find [order] [user] [robloxname]` — Look up orders, receipts, and customer details\n' +
           '• `/searchlogs <query>` — Search closed ticket transcripts using natural language\n' +
           '• `/handoff [public]` — Generate a 4-line staff handoff summary of the current ticket\n' +
-          '• `/afk <set|off|status> [reason]` — Temporarily step away with auto-reply in tickets\n' +
-          '• `/checkreceipt` — View extracted Ref No, Amount, and split payment history (staff only)\n' +
-          '• `/addpayment <amount> [note] [reset]` — Record or adjust a partial/split payment on a ticket\n' +
-          '• `/duty <on|off|status> [note]` — Toggle staff on/off duty status (shows off-duty notice if all staff off-duty)\n' +
-          '• `/staffstats` — Show leaderboard of processed, sent and completed orders per staff member\n' +
-          '• `/report [today|week|all]` — Generate total revenue and sales volume report\n' +
-          '• `/promo <create|delete|list|give>` — Create, manage, or give promo codes to customers in tickets\n' +
-          '• `/remind <receipt|vouch|details> [note]` — Ping customer with a polite reminder (pinned to bottom)\n' +
-          '• `/note <text>` — Post an internal team note inside the ticket channel (pinned to bottom)\n' +
+          '• `/checkreceipt` — View extracted Ref No, Amount, Tamper & split payment history\n' +
+          '• `/addpayment <amount> [note] [reset]` — Record or adjust a partial/split payment',
+      },
+      {
+        name: '🛡️  Staff Operations & Moderation',
+        value:
+          '• `/afk <set|off|status> [reason]` — Step away with auto-reply in tickets\n' +
+          '• `/duty <on|off|status> [note]` — Toggle staff on/off duty status\n' +
+          '• `/staffstats` — Leaderboard of processed, sent, and completed orders\n' +
+          '• `/report [today|week|all]` — Revenue, sales volume, and star rating report\n' +
+          '• `/promo <create|delete|list|give>` — Manage or give promo codes in tickets\n' +
+          '• `/remind <receipt|vouch|details> [note]` — Pin a customer reminder to bottom\n' +
+          '• `/note <text>` — Pin an internal staff note to bottom\n' +
           '• `/blacklist <add|remove|list>` — Block or unblock users from opening tickets',
       }
     )

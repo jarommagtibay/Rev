@@ -84,7 +84,8 @@ const data = loadData();
 // A crash in the middle of saving can no longer leave a half-written data.json.
 function saveData() {
   try {
-    fs.writeFileSync(TEMP_FILE, JSON.stringify(data, null, 2));
+    // Compact JSON avoids multi-megabyte pretty-printed arrays when embeddings/receipts grow
+    fs.writeFileSync(TEMP_FILE, JSON.stringify(data));
     fs.renameSync(TEMP_FILE, DATA_FILE);
   } catch (err) {
     console.error('Could not save data.json:', err);
