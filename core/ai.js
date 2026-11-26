@@ -462,15 +462,52 @@ async function generateAnnouncement({ topic, rate, stock }) {
     }
   }
 
-  return {
-    title: `🔥  REVÉUX ANNOUNCEMENT`,
-    body:
-      `✨ **${topic}**\n\n` +
+  // Smart fallback that builds a proper hyped announcement from the topic
+  const topicLower = (topic || '').toLowerCase();
+  const isFlashDrop = topicLower.includes('flash') || topicLower.includes('drop') || topicLower.includes('limited');
+  const isRestock = topicLower.includes('restock') || topicLower.includes('back in stock') || topicLower.includes('new stock');
+  const isRateChange = topicLower.includes('rate') || topicLower.includes('price') || topicLower.includes('discount') || topicLower.includes('sale');
+
+  let title, body;
+
+  if (isFlashDrop) {
+    title = `⚡🔥  FLASH DROP — LIMITED TIME ONLY!`;
+    body =
+      `### ${topic}\n\n` +
+      `🕐 **This is a limited-time drop** — once it's gone, it's gone!\n` +
+      `💎 **Rate:** ${CURRENCY}${rate} / 100 Robux\n` +
+      `📦 **Stock:** ${Number(stock || 0).toLocaleString()} Robux\n\n` +
+      `⚡ Don't wait — open a ticket in the buy channel NOW before stock runs out!\n` +
+      `> *First come, first served. No reservations.*`;
+  } else if (isRestock) {
+    title = `📦✨  FRESH RESTOCK IS HERE!`;
+    body =
+      `### ${topic}\n\n` +
+      `We just loaded up with **fresh Robux stock** and we're ready to deliver! 🚀\n\n` +
+      `💎 **Rate:** ${CURRENCY}${rate} / 100 Robux\n` +
+      `📦 **Available Now:** ${Number(stock || 0).toLocaleString()} Robux\n\n` +
+      `🛒 Head to the buy channel and grab yours while stock lasts!\n` +
+      `> *Orders are served first come, first served.*`;
+  } else if (isRateChange) {
+    title = `💰🔥  SPECIAL RATE — DON'T MISS OUT!`;
+    body =
+      `### ${topic}\n\n` +
+      `We've got a **special rate** running right now — save more on your Robux! 💸\n\n` +
+      `💎 **Current Rate:** ${CURRENCY}${rate} / 100 Robux\n` +
+      `📦 **Stock:** ${Number(stock || 0).toLocaleString()} Robux\n\n` +
+      `🛒 Open a ticket now to lock in this rate before it changes!\n` +
+      `> *Prices may change anytime — order now to secure yours.*`;
+  } else {
+    title = `🔥  REVÉUX ANNOUNCEMENT`;
+    body =
+      `### ${topic}\n\n` +
       `💎 **Current Rate:** ${CURRENCY}${rate} / 100 Robux\n` +
       `📦 **Available Stock:** ${Number(stock || 0).toLocaleString()} Robux\n\n` +
-      `🛒 Head to the buy channel and open a ticket now before stock runs out!`,
-    engine: 'Smart Template',
-  };
+      `🛒 Head to the buy channel and open a ticket now!\n` +
+      `> *Fast, trusted, and verified — Revéux Shop*`;
+  }
+
+  return { title, body, engine: 'Smart Template' };
 }
 
 module.exports = {
