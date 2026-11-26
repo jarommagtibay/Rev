@@ -22,6 +22,7 @@ const client = require('../core/client');
 const M = require('../messages');
 const { data, saveData, formatPrice, getLowStockThreshold } = require('../core/data');
 const { EPHEMERAL, isStaff, fill } = require('../core/helpers');
+const { availableStock, reservedStock } = require('../core/queue');
 
 const commands = [
   new SlashCommandBuilder()
@@ -87,6 +88,17 @@ function buildStockEmbed() {
   const totalOrders = data.totalOrders || 0;
   const totalVouches = data.totalVouches || 0;
   const totalRobux = data.totalRobuxDelivered || 0;
+  const avail = availableStock();
+  const reserved = reservedStock();
+
+  let stockText;
+  if (reserved > 0 && avail === 0 && data.stock > 0) {
+    stockText = `0 available\n*(${reserved.toLocaleString()} R$ reserved for customers in line)*`;
+  } else if (reserved > 0) {
+    stockText = `${avail.toLocaleString()} Robux available\n*(${reserved.toLocaleString()} R$ reserved in line • ${data.stock.toLocaleString()} total)*`;
+  } else {
+    stockText = `${data.stock.toLocaleString()} Robux`;
+  }
 
   return new EmbedBuilder()
     .setTitle('Robux Stock')
@@ -99,7 +111,7 @@ function buildStockEmbed() {
       },
       {
         name: 'In stock',
-        value: `${data.stock.toLocaleString()} Robux`,
+        value: stockText,
         inline: true,
       },
       {
@@ -125,12 +137,27 @@ function buildStockEmbed() {
 function buildPublicStock(ping = true) {
   const T = M.publicStock;
   const open = data.shopOpen;
+  const avail = availableStock();
+  const reserved = reservedStock();
   const outOfStock = data.stock <= 0 || data.rate <= 0;
 
   let description;
   if (!open) description = T.descClosed;
   else if (outOfStock) description = T.descOutOfStock;
-  else description = T.descOpen;
+  else if (avail === 0 && reserved > 0) {
+    description = `${T.descOpen}\n\n⏳ **All ${data.stock.toLocaleString()} Robux in stock is currently reserved for customers in line.**`;
+  } else {
+    description = T.descOpen;
+  }
+
+  let stockBoardText;
+  if (reserved > 0 && avail === 0 && data.stock > 0) {
+    stockBoardText = `0 available\n(${reserved.toLocaleString()} reserved in line)`;
+  } else if (reserved > 0) {
+    stockBoardText = `${avail.toLocaleString()} Robux\n(${reserved.toLocaleString()} reserved in line)`;
+  } else {
+    stockBoardText = `${data.stock.toLocaleString()} Robux`;
+  }
 
   const queueCount = data.queue.length;
   const queueText = queueCount === 0 ? T.queueEmpty : fill(T.queueCount, { count: queueCount });
@@ -143,7 +170,7 @@ function buildPublicStock(ping = true) {
     .addFields(
       {
         name: T.inStockLabel,
-        value: `\`\`\`${data.stock.toLocaleString()} Robux\`\`\``,
+        value: `\`\`\`${stockBoardText}\`\`\``,
         inline: true,
       },
       {
@@ -160,10 +187,10 @@ function buildPublicStock(ping = true) {
     .setTimestamp();
   if (T.footer) embed.setFooter({ text: T.footer });
 
-  // Price list, only for amounts that are in stock
-  if (!outOfStock) {
+  // Price list, only for amounts that are still free to order
+  if (!outOfStock && avail > 0) {
     const lines = T.priceListAmounts
-      .filter((a) => a <= data.stock)
+      .filter((a) => a <= avail)
       .map((a) => `${a.toLocaleString().padStart(6)} Robux  →  ${formatPrice(a)}`);
     if (lines.length > 0) {
       embed.addFields({

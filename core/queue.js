@@ -140,14 +140,17 @@ function removeFromQueue(channelId) {
   return data.queue.length !== before;
 }
 
+function reservedStock(excludeChannelId = null) {
+  return data.queue
+    .filter((e) => e.type !== 'game' && !e.onHold && e.channelId !== excludeChannelId)
+    .reduce((sum, e) => sum + (e.amount || 0), 0);
+}
+
 // Stock that is still free to order: the real stock minus every Robux order waiting in the queue.
 // Held tickets do not reserve stock so active buyers are not blocked by idle/unpaid orders.
 // (Game orders do not use Robux stock.) excludeChannelId = ignore one order, used when editing it.
 function availableStock(excludeChannelId = null) {
-  const reserved = data.queue
-    .filter((e) => e.type !== 'game' && !e.onHold && e.channelId !== excludeChannelId)
-    .reduce((sum, e) => sum + (e.amount || 0), 0);
-  return Math.max(0, data.stock - reserved);
+  return Math.max(0, data.stock - reservedStock(excludeChannelId));
 }
 
 function notEnoughStockMessage(available) {
@@ -155,4 +158,4 @@ function notEnoughStockMessage(available) {
   return `Not enough stock. We only have **${available.toLocaleString()}** Robux available${note}.`;
 }
 
-module.exports = { refreshQueue, removeFromQueue, availableStock, notEnoughStockMessage };
+module.exports = { refreshQueue, removeFromQueue, reservedStock, availableStock, notEnoughStockMessage };

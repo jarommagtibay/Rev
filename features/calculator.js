@@ -12,7 +12,7 @@ const { CURRENCY, COLOR } = require('../config');
 const M = require('../messages');
 const { data, formatPrice } = require('../core/data');
 const { EPHEMERAL, fill, parseOrderAmount } = require('../core/helpers');
-const { availableStock } = require('../core/queue');
+const { availableStock, reservedStock } = require('../core/queue');
 const { showForm } = require('./buy');
 
 const commands = [
@@ -56,10 +56,17 @@ async function runCalc(interaction) {
   const amount = parsed.amount;
 
   const avail = availableStock();
-  const availability =
-    amount > avail
-      ? fill(T.overStock, { stock: avail.toLocaleString() })
-      : fill(T.inStock);
+  const reserved = reservedStock();
+  let availability;
+  if (amount <= avail) {
+    availability = fill(T.inStock);
+  } else if (avail === 0 && data.stock > 0 && reserved > 0) {
+    availability = `⏳ All ${data.stock.toLocaleString()} Robux in stock is currently reserved for customers in line`;
+  } else if (reserved > 0) {
+    availability = `⚠️ Over available stock (${avail.toLocaleString()} Robux free • ${reserved.toLocaleString()} R$ reserved in line)`;
+  } else {
+    availability = fill(T.overStock, { stock: avail.toLocaleString() });
+  }
 
   const embed = new EmbedBuilder()
     .setColor(COLOR)
