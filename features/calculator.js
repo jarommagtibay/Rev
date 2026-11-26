@@ -12,6 +12,7 @@ const { CURRENCY, COLOR } = require('../config');
 const M = require('../messages');
 const { data, formatPrice } = require('../core/data');
 const { EPHEMERAL, fill, parseOrderAmount } = require('../core/helpers');
+const { availableStock } = require('../core/queue');
 const { showForm } = require('./buy');
 
 const commands = [
@@ -54,12 +55,11 @@ async function runCalc(interaction) {
   }
   const amount = parsed.amount;
 
+  const avail = availableStock();
   const availability =
-    amount > data.stock
-      ? fill(T.overStock, { stock: data.stock.toLocaleString() })
+    amount > avail
+      ? fill(T.overStock, { stock: avail.toLocaleString() })
       : fill(T.inStock);
-
-  const gamepassPrice = Math.ceil(amount / 0.7);
 
   const embed = new EmbedBuilder()
     .setColor(COLOR)
@@ -72,18 +72,13 @@ async function runCalc(interaction) {
         value: `\`\`\`${CURRENCY}${data.rate} / 100 Robux\`\`\``,
         inline: true,
       },
-      {
-        name: '🎟️  Gamepass Price (30% Tax)',
-        value: `\`\`\`${gamepassPrice.toLocaleString()} R$\`\`\``,
-        inline: true,
-      },
       { name: T.availabilityLabel, value: availability }
     )
     .setTimestamp();
   if (T.footer) embed.setFooter({ text: T.footer });
 
   const components = [];
-  if (data.shopOpen && amount <= data.stock) {
+  if (data.shopOpen && amount <= avail) {
     components.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
