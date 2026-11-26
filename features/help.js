@@ -367,6 +367,7 @@ function buildStaffHelpEmbed() {
           '• `/find [order] [user] [robloxname]` — Look up orders, receipts, and customer details\n' +
           '• `/searchlogs <query>` — Search closed ticket transcripts using natural language\n' +
           '• `/handoff [public]` — Generate a 4-line staff handoff summary of the current ticket\n' +
+          '• `/copilot [focus]` — Private AI assistant with 1-click suggested replies & actions\n' +
           '• `/checkreceipt` — View extracted Ref No, Amount, Tamper & split payment history\n' +
           '• `/addpayment <amount> [note] [reset]` — Record or adjust a partial/split payment',
       },

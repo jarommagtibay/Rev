@@ -277,9 +277,158 @@ function localSemanticScore(query, docText) {
   return Math.min(0.99, tokenScore * 0.65 + triScore * 0.35);
 }
 
+const ALLOWED_COPILOT_ACTIONS = new Set([
+  'send_reply',
+  'edit_reply',
+  'send_balance_reminder',
+  'ask_clear_receipt',
+  'mark_paid',
+  'mark_processing',
+  'pin_vouch_reminder',
+]);
+
+/**
+ * Analyzes an active ticket for /copilot and returns:
+ * { situation, suggestedReply, actions: string[], engine: string }
+ */
+async function analyzeTicketForCopilot(ctx) {
+  const {
+    orderId,
+    productText,
+    price,
+    amountPaid,
+    paymentCount,
+    stage,
+    isPaidFlag,
+    onHold,
+    stickyNote,
+    stickyRemind,
+    lastReceipt,
+    transcriptSnippet,
+    focus,
+  } = ctx;
+
+  const total = Number(price) || 0;
+  const paid = Number(amountPaid) || 0;
+  const remaining = Math.max(0, total - paid);
+
+  if (isLLMAvailable()) {
+    const prompt =
+      `You are an AI Copilot for staff running a Discord Robux & game credit shop (Revéux).\n` +
+      `Analyze the ticket state and recent messages, then respond with ONLY valid JSON (no markdown fences, no extra text):\n` +
+      `{\n` +
+      `  "situation": "1-2 concise sentences diagnosing what is happening or blocking the order right now.",\n` +
+      `  "suggestedReply": "A short, friendly, natural English/Taglish reply staff can send to the customer right now (under 240 chars).",\n` +
+      `  "actions": ["action_id_1", "action_id_2"]\n` +
+      `}\n\n` +
+      `Allowed action IDs (pick 2 to 4 most relevant):\n` +
+      `- "send_reply": Post the suggestedReply directly to the ticket\n` +
+      `- "edit_reply": Open a popup to edit suggestedReply before sending\n` +
+      `- "send_balance_reminder": Pin a customer reminder for the remaining ${CURRENCY}${remaining.toFixed(2)} balance\n` +
+      `- "ask_clear_receipt": Pin a reminder asking for a clearer, uncropped receipt with Ref No. & amount\n` +
+      `- "mark_paid": Mark Payment Received on the ticket\n` +
+      `- "mark_processing": Mark order as Processing\n` +
+      `- "pin_vouch_reminder": Pin a reminder asking the customer to vouch/rate\n\n` +
+      `Structured Ticket State:\n` +
+      `- Order ID: #${orderId}\n` +
+      `- Product: ${productText}\n` +
+      `- Order Total: ${CURRENCY}${total.toFixed(2)}\n` +
+      `- Tracked Paid So Far: ${CURRENCY}${paid.toFixed(2)} (${paymentCount} transfer(s)), Remaining: ${CURRENCY}${remaining.toFixed(2)}\n` +
+      `- Stage: ${stage} | Payment Marked Received: ${isPaidFlag ? 'Yes' : 'No'} | On Hold: ${onHold ? 'Yes' : 'No'}\n` +
+      (stickyNote ? `- Staff Sticky Note: ${stickyNote}\n` : '') +
+      (stickyRemind ? `- Active Customer Reminder: ${stickyRemind}\n` : '') +
+      (lastReceipt
+        ? `- Last Receipt Scan: ${lastReceipt.amount || 'Unknown'} (${lastReceipt.provider || 'Unknown'}), Ref: ${
+            lastReceipt.refNo || 'None'
+          }, Tamper: ${lastReceipt.forensics?.badge || 'Clean'}, Duplicate: ${lastReceipt.isDuplicate ? 'YES' : 'No'}\n`
+        : '- Last Receipt Scan: None yet\n') +
+      (focus ? `\nStaff Specific Question/Focus: ${focus}\n` : '') +
+      `\nRecent Ticket Messages (oldest to newest):\n${transcriptSnippet || '(No messages)'}`;
+
+    const llm = await generateTextWithLLM(prompt);
+    if (llm && llm.text) {
+      try {
+        const cleaned = llm.text
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```$/i, '')
+          .trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed && typeof parsed.situation === 'string' && parsed.situation.trim()) {
+          const validActions = Array.isArray(parsed.actions)
+            ? parsed.actions.filter((a) => ALLOWED_COPILOT_ACTIONS.has(a)).slice(0, 4)
+            : [];
+          if (validActions.length === 0) validActions.push('send_reply', 'edit_reply');
+          return {
+            situation: parsed.situation.trim().slice(0, 500),
+            suggestedReply:
+              typeof parsed.suggestedReply === 'string' && parsed.suggestedReply.trim()
+                ? parsed.suggestedReply.trim().slice(0, 350)
+                : 'Hi! Checking in on your order — please let us know if you need anything.',
+            actions: validActions,
+            engine: llm.engine,
+          };
+        }
+      } catch (err) {
+        console.warn('[ai] Copilot JSON parse failed, using fallback:', err.message || err);
+      }
+    }
+  }
+
+  // Deterministic smart fallback when no LLM key is configured or parse fails
+  let situation = `Order #${orderId} (${productText}) is currently in **${stage}** stage.`;
+  let suggestedReply = 'Hi! We are reviewing your order now and will update you shortly.';
+  let actions = ['send_reply', 'edit_reply'];
+
+  if (lastReceipt?.forensics?.riskLevel === 'high' || lastReceipt?.isDuplicate) {
+    situation = lastReceipt?.isDuplicate
+      ? `🚨 Receipt flagged as a **duplicate** (Ref: \`${lastReceipt.refNo || 'Unknown'}\`). Verify carefully before marking paid.`
+      : `🚨 Receipt flagged for **high tampering risk** (${lastReceipt.forensics?.badge || 'Alert'}). Request a screen recording or clearer uncropped proof.`;
+    suggestedReply =
+      'Hi! For security verification, could you please send an uncropped screenshot or quick screen recording showing the transaction in your GCash/Maya history?';
+    actions = ['ask_clear_receipt', 'send_reply', 'edit_reply'];
+  } else if (!isPaidFlag && paid > 0 && remaining > 0.01) {
+    situation = `Buyer has paid **${CURRENCY}${paid.toFixed(2)}** out of **${CURRENCY}${total.toFixed(2)}** — still short by **${CURRENCY}${remaining.toFixed(2)}**.`;
+    suggestedReply = `Hi! We received ${CURRENCY}${paid.toFixed(2)} so far. Please send the remaining ${CURRENCY}${remaining.toFixed(2)} and upload the receipt so we can proceed!`;
+    actions = ['send_balance_reminder', 'send_reply', 'edit_reply'];
+  } else if (!isPaidFlag && lastReceipt && (!lastReceipt.amount || !lastReceipt.refNo)) {
+    situation = 'A receipt was uploaded, but OCR could not clearly read the amount or reference number.';
+    suggestedReply =
+      'Hi! Could you please resend a clearer, uncropped receipt screenshot showing the full amount and Reference No.?';
+    actions = ['ask_clear_receipt', 'send_reply', 'edit_reply', 'mark_paid'];
+  } else if (!isPaidFlag && paid >= total && total > 0) {
+    situation = `Tracked payments (**${CURRENCY}${paid.toFixed(2)}**) cover the **${CURRENCY}${total.toFixed(2)}** total. Ready to confirm payment.`;
+    suggestedReply = 'Payment confirmed! Moving your order to processing now.';
+    actions = ['mark_paid', 'send_reply', 'edit_reply'];
+  } else if (!isPaidFlag) {
+    situation = `Waiting on customer payment (**${CURRENCY}${total.toFixed(2)}**) or receipt screenshot.`;
+    suggestedReply = `Hi! Please send your **${CURRENCY}${total.toFixed(2)}** payment using the QR above and upload the receipt screenshot here when done.`;
+    actions = ['ask_clear_receipt', 'send_reply', 'edit_reply'];
+  } else if (stage === 'open') {
+    situation = 'Payment is already marked received, and the order is ready to move into Processing.';
+    suggestedReply = 'Thanks for waiting! We are processing your order now.';
+    actions = ['mark_processing', 'send_reply', 'edit_reply'];
+  } else if (stage === 'processing') {
+    situation = 'Order is currently Processing. Deliver the item and use `/sent` (or the Sent button) with proof.';
+    suggestedReply = 'Working on your order right now — will send proof shortly!';
+    actions = ['send_reply', 'edit_reply'];
+  } else if (stage === 'sent') {
+    situation = 'Order has been sent! Waiting for the customer to leave a vouch/rating.';
+    suggestedReply = 'Your order has been delivered! Please click a star rating button above to vouch and complete your order ⭐';
+    actions = ['pin_vouch_reminder', 'send_reply', 'edit_reply'];
+  }
+
+  return {
+    situation,
+    suggestedReply,
+    actions,
+    engine: 'Smart Rules',
+  };
+}
+
 module.exports = {
   isLLMAvailable,
   summarizeTicketHandoff,
+  analyzeTicketForCopilot,
   getTextEmbedding,
   cosineSimilarity,
   localSemanticScore,
