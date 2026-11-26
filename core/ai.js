@@ -425,10 +425,59 @@ async function analyzeTicketForCopilot(ctx) {
   };
 }
 
+/**
+ * Generates a hyped, clean Discord shop announcement for /announce.
+ * Returns { title, body, engine }.
+ */
+async function generateAnnouncement({ topic, rate, stock }) {
+  if (isLLMAvailable()) {
+    const prompt =
+      `You are writing a Discord announcement for a trusted Philippine Robux & Mobile Game credits shop called "Revéux".\n` +
+      `Topic / Promo Details: ${topic}\n` +
+      `Current Live Shop Context: Rate = ${CURRENCY}${rate} per 100 Robux | Available Stock = ${Number(stock || 0).toLocaleString()} Robux\n\n` +
+      `Respond with ONLY valid JSON (no markdown code fences):\n` +
+      `{\n` +
+      `  "title": "Short punchy headline with 1-2 emojis (max 80 chars)",\n` +
+      `  "body": "Clean, hyped Discord announcement with bullet points/emojis, clear call-to-action to open a ticket, max 700 chars."\n` +
+      `}`;
+
+    const llm = await generateTextWithLLM(prompt);
+    if (llm && llm.text) {
+      try {
+        const cleaned = llm.text
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```$/i, '')
+          .trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed && typeof parsed.title === 'string' && typeof parsed.body === 'string') {
+          return {
+            title: parsed.title.trim().slice(0, 120),
+            body: parsed.body.trim().slice(0, 1500),
+            engine: llm.engine,
+          };
+        }
+      } catch (err) {
+        console.warn('[ai] Announcement JSON parse failed, using fallback:', err.message || err);
+      }
+    }
+  }
+
+  return {
+    title: `🔥  REVÉUX ANNOUNCEMENT`,
+    body:
+      `✨ **${topic}**\n\n` +
+      `💎 **Current Rate:** ${CURRENCY}${rate} / 100 Robux\n` +
+      `📦 **Available Stock:** ${Number(stock || 0).toLocaleString()} Robux\n\n` +
+      `🛒 Head to the buy channel and open a ticket now before stock runs out!`,
+    engine: 'Smart Template',
+  };
+}
+
 module.exports = {
   isLLMAvailable,
   summarizeTicketHandoff,
   analyzeTicketForCopilot,
+  generateAnnouncement,
   getTextEmbedding,
   cosineSimilarity,
   localSemanticScore,

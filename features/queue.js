@@ -85,7 +85,7 @@ async function holdTicket(channel, staffMember, reason = '') {
     const stage = stageFromEmbed(embed);
     await message.edit({
       embeds: [embed],
-      components: ticketRows(stage, isPaid(embed), true, true),
+      components: ticketRows(stage, isPaid(embed), true, true, Boolean(entry.isExpress)),
     });
     entry.shownPosition = '⏸️ On Hold';
     saveData();
@@ -142,7 +142,7 @@ async function unholdTicket(channel, staffMember, positionOption = 'front') {
     const stage = stageFromEmbed(embed);
     await message.edit({
       embeds: [embed],
-      components: ticketRows(stage, isPaid(embed), true, false),
+      components: ticketRows(stage, isPaid(embed), true, false, Boolean(entry.isExpress)),
     });
   } catch (err) {
     // message not found, ignore

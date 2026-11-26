@@ -12,7 +12,7 @@ const client = require('./client');
 const M = require('../messages');
 const { baseName, fill } = require('./helpers');
 const { generateReceiptCard } = require('./receiptCard');
-const { data, formatPeso } = require('./data');
+const { data, formatPeso, getExpressFee } = require('./data');
 
 // Big headline at the top of the order card: what was bought + the price, large and easy to see.
 // Only decoration: nothing in the bot reads the description, the fields below stay the real data.
@@ -109,7 +109,7 @@ function getAmount(embed) {
 // Buttons shown in the ticket depending on the order stage
 // paid = true once staff marked the payment as received (hides that button)
 // canEdit is not used anymore: Edit Order now shows for Robux AND game orders
-function ticketRows(stage, paid, canEdit = true, onHold = false) {
+function ticketRows(stage, paid, canEdit = true, onHold = false, isExpress = false) {
   const btn = (id, label, style) =>
     new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style);
 
@@ -143,13 +143,20 @@ function ticketRows(stage, paid, canEdit = true, onHold = false) {
   staffButtons.push(btn('edit_order', 'Edit Order', ButtonStyle.Danger));
   staffButtons.push(btn('complete_order', 'Complete Order (Staff)', ButtonStyle.Danger));
 
+  const row2 = new ActionRowBuilder().addComponents(
+    btn(onHold ? 'unhold_ticket' : 'hold_ticket', onHold ? 'Resume' : 'Hold', ButtonStyle.Danger),
+    btn('copy_info', 'Copy Info', ButtonStyle.Danger),
+    btn('close_ticket', 'Close Ticket', ButtonStyle.Danger)
+  );
+  if (!isExpress) {
+    row2.addComponents(
+      btn('upgrade_express', `⚡ Upgrade to Express (+${CURRENCY}${getExpressFee()})`, ButtonStyle.Success)
+    );
+  }
+
   return [
     new ActionRowBuilder().addComponents(staffButtons),
-    new ActionRowBuilder().addComponents(
-      btn(onHold ? 'unhold_ticket' : 'hold_ticket', onHold ? 'Resume' : 'Hold', ButtonStyle.Danger),
-      btn('copy_info', 'Copy Info', ButtonStyle.Danger),
-      btn('close_ticket', 'Close Ticket', ButtonStyle.Danger)
-    ),
+    row2,
   ];
 }
 

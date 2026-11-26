@@ -86,7 +86,7 @@ async function markPaymentReceivedUnlocked(message, channel, user) {
   }
   await message.edit({
     embeds: [embed],
-    components: ticketRows(stage, true, isRobuxOrder(embed), Boolean(entry && entry.onHold)),
+    components: ticketRows(stage, true, isRobuxOrder(embed), Boolean(entry && entry.onHold), Boolean(entry && entry.isExpress)),
   });
 
   await channel.send(
@@ -114,7 +114,7 @@ async function markProcessingUnlocked(message, channel, user) {
   }
   await message.edit({
     embeds: [embed],
-    components: ticketRows('processing', isPaid(embed), isRobuxOrder(embed), Boolean(entry && entry.onHold)),
+    components: ticketRows('processing', isPaid(embed), isRobuxOrder(embed), Boolean(entry && entry.onHold), Boolean(entry && entry.isExpress)),
   });
 
   await channel.send(

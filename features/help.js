@@ -357,6 +357,7 @@ function buildStaffHelpEmbed() {
           `• **Pay to Hixsly / Ysha:** Sends payee's QR code and 1-tap mobile copyable GCash number\n` +
           `• **Copy Info:** Modal popup with account/username/game IDs for 1-tap copy on mobile\n` +
           `• **Hold / Resume:** 1-click red button to pause or resume queue position\n` +
+          `• **Upgrade to Express:** Lets buyer/staff bump a normal ticket to Express (+₱15)\n` +
           `• **Complete Order:** Finishes order, posts receipt to \`#receipts\`, and records shop stats\n` +
           `• **Close Ticket:** Generates HTML transcript for \`#ticket-logs\` and deletes channel (staff only)`,
       },
@@ -368,6 +369,7 @@ function buildStaffHelpEmbed() {
           '• `/searchlogs <query>` — Search closed ticket transcripts using natural language\n' +
           '• `/handoff [public]` — Generate a 4-line staff handoff summary of the current ticket\n' +
           '• `/copilot [focus]` — Private AI assistant with 1-click suggested replies & actions\n' +
+          '• `/announce <topic> [channel] [ping]` — AI promo/flash drop writer with preview & post\n' +
           '• `/checkreceipt` — View extracted Ref No, Amount, Tamper & split payment history\n' +
           '• `/addpayment <amount> [note] [reset]` — Record or adjust a partial/split payment',
       },

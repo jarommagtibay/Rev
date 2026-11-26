@@ -320,7 +320,7 @@ async function createTicket(interaction) {
   const message = await channel.send({
     content: `${interaction.user} ${staffAlert}`,
     embeds: [embed],
-    components: ticketRows('open', false),
+    components: ticketRows('open', false, true, false, Boolean(isExpress)),
     allowedMentions: { parse: ['users', 'roles'] },
   });
 
