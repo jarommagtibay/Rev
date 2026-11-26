@@ -182,7 +182,7 @@ async function checkUnvouchedInterval(client) {
             // Send notice inside the ticket with instant vouch button
             const vBtn = new ButtonBuilder()
               .setCustomId(`vouch_unlock:${userId}:${buyer.orderId}`)
-              .setLabel('⭐ Vouch Now to Remove Penalty')
+              .setLabel('Vouch Now to Remove Penalty')
               .setStyle(ButtonStyle.Success)
               .setEmoji('⭐');
 
@@ -235,7 +235,7 @@ function buildUnvouchedBlockEmbed(buyer) {
 
   const button = new ButtonBuilder()
     .setCustomId(`vouch_unlock:${buyer.userId}:${orderId}`)
-    .setLabel('⭐ Vouch Now to Unlock')
+    .setLabel('Vouch Now to Unlock')
     .setStyle(ButtonStyle.Success)
     .setEmoji('⭐');
 

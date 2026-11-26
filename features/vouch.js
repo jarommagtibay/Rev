@@ -384,9 +384,33 @@ async function vouchUnlockButton(interaction) {
     .setCustomId(`vouch_unlock_form:${orderId}`)
     .setTitle(`Vouch for Order #${orderId}`.slice(0, 45));
 
+  // Older discord.js: no picture upload, classic layout
+  if (!FileUploadBuilder || !LabelBuilder) {
+    const messageInput = new TextInputBuilder()
+      .setCustomId('vouch_message')
+      .setLabel('Your vouch / feedback')
+      .setPlaceholder('e.g. Fast, smooth transaction and trusted! Thank you!')
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true)
+      .setMaxLength(500);
+
+    const ratingInput = new TextInputBuilder()
+      .setCustomId('vouch_rating')
+      .setLabel('Rating from 1 to 5 (optional)')
+      .setPlaceholder('5')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setMaxLength(1);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(messageInput),
+      new ActionRowBuilder().addComponents(ratingInput)
+    );
+    return interaction.showModal(modal);
+  }
+
   const messageInput = new TextInputBuilder()
     .setCustomId('vouch_message')
-    .setLabel('Your vouch / feedback')
     .setPlaceholder('e.g. Fast, smooth transaction and trusted! Thank you!')
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
@@ -394,21 +418,28 @@ async function vouchUnlockButton(interaction) {
 
   const ratingInput = new TextInputBuilder()
     .setCustomId('vouch_rating')
-    .setLabel('Rating from 1 to 5 (optional)')
     .setPlaceholder('5')
     .setStyle(TextInputStyle.Short)
     .setRequired(false)
     .setMaxLength(1);
 
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(messageInput),
-    new ActionRowBuilder().addComponents(ratingInput)
+  const pictureUpload = new FileUploadBuilder().setCustomId('vouch_proof').setRequired(false);
+
+  modal.addLabelComponents(
+    new LabelBuilder().setLabel('Your vouch / feedback').setTextInputComponent(messageInput),
+    new LabelBuilder()
+      .setLabel('Rating from 1 to 5 (optional)')
+      .setTextInputComponent(ratingInput),
+    new LabelBuilder()
+      .setLabel('Picture (optional)')
+      .setDescription('Attach a screenshot as evidence')
+      .setFileUploadComponent(pictureUpload)
   );
 
   return interaction.showModal(modal);
 }
 
-// Unlock modal submitted -> post vouch, clear @Unvouched Buyer role, unblock customer
+// Unlock modal submitted -> post vouch (with optional picture), record rating, clear @Unvouched Buyer role
 async function vouchUnlockForm(interaction) {
   const orderId = interaction.customId.split(':')[1] || 'REV-XXXX';
   const vouchText = interaction.fields.getTextInputValue('vouch_message').trim();
@@ -421,8 +452,24 @@ async function vouchUnlockForm(interaction) {
     });
   }
 
+  // Optional picture upload
+  let attachment = null;
+  try {
+    const files = interaction.fields.getUploadedFiles('vouch_proof');
+    attachment = (files && files.first()) || null;
+  } catch {
+    attachment = null;
+  }
+  if (attachment && !(attachment.contentType || '').startsWith('image/')) {
+    return interaction.reply({
+      content: 'The attached file must be a picture (PNG or JPG). Please try again.',
+      flags: EPHEMERAL,
+    });
+  }
+
   await interaction.deferReply({ flags: EPHEMERAL });
 
+  const finalRating = ratingText ? Number(ratingText) : 5;
   const vouchEmbed = new EmbedBuilder()
     .setTitle('New Vouch')
     .setColor(COLOR)
@@ -430,23 +477,30 @@ async function vouchUnlockForm(interaction) {
     .setThumbnail(interaction.user.displayAvatarURL())
     .addFields(
       { name: 'Customer', value: `${interaction.user}`, inline: true },
-      { name: 'Order ID', value: `#${orderId}`, inline: true }
+      { name: 'Order ID', value: `#${orderId}`, inline: true },
+      { name: 'Rating', value: '⭐'.repeat(finalRating), inline: true }
     )
     .setTimestamp();
 
-  if (ratingText) {
-    vouchEmbed.addFields({
-      name: 'Rating',
-      value: '⭐'.repeat(Number(ratingText)),
-      inline: true,
-    });
+  let proofFile = null;
+  if (attachment) {
+    const ext = (path.extname(attachment.name || '') || '.png').toLowerCase();
+    const proofName = `vouch-proof${ext}`;
+    vouchEmbed.setImage(`attachment://${proofName}`);
+    proofFile = new AttachmentBuilder(attachment.url, { name: proofName });
   }
 
   if (VOUCH_CHANNEL_ID) {
     try {
       const vouchChannel = await client.channels.fetch(VOUCH_CHANNEL_ID).catch(() => null);
       if (vouchChannel) {
-        await vouchChannel.send({ embeds: [vouchEmbed] });
+        try {
+          await vouchChannel.send({ embeds: [vouchEmbed], files: proofFile ? [proofFile] : [] });
+        } catch (uploadErr) {
+          if (!attachment) throw uploadErr;
+          vouchEmbed.setImage(attachment.url);
+          await vouchChannel.send({ embeds: [vouchEmbed] });
+        }
       }
     } catch (err) {
       console.error('Could not post vouch from unlock modal:', err);
@@ -454,6 +508,15 @@ async function vouchUnlockForm(interaction) {
   }
 
   data.totalVouches = (data.totalVouches || 0) + 1;
+  recordRating(finalRating, orderId, interaction.user.id, vouchText);
+  if (Array.isArray(data.ordersLog)) {
+    for (const ord of data.ordersLog) {
+      if (ord.orderId === orderId) {
+        ord.rating = finalRating;
+        ord.vouchText = vouchText;
+      }
+    }
+  }
   saveData();
 
   await clearUnvouchedBuyer(interaction.guild, interaction.user.id);
