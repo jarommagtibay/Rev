@@ -51,34 +51,45 @@ function parseVisionJson(rawText) {
 }
 
 async function callGeminiVision(base64, mimeType) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(
-    GEMINI_API_KEY
-  )}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(15000),
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: VISION_PROMPT },
-            { inline_data: { mime_type: mimeType, data: base64 } },
+  let lastErr = null;
+  for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+        GEMINI_API_KEY
+      )}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: VISION_PROMPT },
+                { inline_data: { mime_type: mimeType, data: base64 } },
+              ],
+            },
           ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-      },
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Gemini Vision HTTP ${res.status}`);
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+          },
+        }),
+      });
+      if (!res.ok) {
+        lastErr = new Error(`Gemini Vision (${model}) HTTP ${res.status}`);
+        continue;
+      }
+      const json = await res.json();
+      const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const parsed = parseVisionJson(text);
+      if (parsed) return parsed;
+    } catch (err) {
+      lastErr = err;
+    }
   }
-  const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return parseVisionJson(text);
+  if (lastErr) throw lastErr;
+  return null;
 }
 
 async function callOpenAIVision(base64, mimeType) {

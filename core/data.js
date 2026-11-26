@@ -35,6 +35,7 @@ function loadData() {
       expressFee: typeof d.expressFee === 'number' ? d.expressFee : null,
       lowStockThreshold: typeof d.lowStockThreshold === 'number' ? d.lowStockThreshold : null,
       transcriptIndex: Array.isArray(d.transcriptIndex) ? d.transcriptIndex : [],
+      aiLearning: d.aiLearning && typeof d.aiLearning === 'object' ? d.aiLearning : { providers: {} },
     };
   } catch (err) {
     // If data.json exists but is broken, keep a copy so it is not overwritten and lost
@@ -72,6 +73,7 @@ function loadData() {
       expressFee: null,
       lowStockThreshold: null,
       transcriptIndex: [],
+      aiLearning: { providers: {} },
     };
   }
 }
@@ -236,6 +238,28 @@ function isBlacklisted(userId) {
   return Array.isArray(data.blacklist) && data.blacklist.some((b) => b.userId === userId);
 }
 
+// Records OCR/Vision outcome per payment provider so the bot learns which layouts need AI Vision escalation
+function recordOcrOutcome(provider, success) {
+  const key = String(provider || 'E-Wallet / Bank').trim();
+  if (!data.aiLearning || typeof data.aiLearning !== 'object') {
+    data.aiLearning = { providers: {} };
+  }
+  if (!data.aiLearning.providers) data.aiLearning.providers = {};
+  if (!data.aiLearning.providers[key]) {
+    data.aiLearning.providers[key] = { total: 0, failures: 0 };
+  }
+  data.aiLearning.providers[key].total += 1;
+  if (!success) data.aiLearning.providers[key].failures += 1;
+  saveData();
+}
+
+function shouldEscalateProviderToVision(provider) {
+  const key = String(provider || '').trim();
+  const stat = data.aiLearning?.providers?.[key];
+  if (!stat || stat.total < 3) return false;
+  return stat.failures / stat.total >= 0.35;
+}
+
 module.exports = {
   data,
   saveData,
@@ -253,4 +277,6 @@ module.exports = {
   getExpressFee,
   getLowStockThreshold,
   recordRating,
+  recordOcrOutcome,
+  shouldEscalateProviderToVision,
 };

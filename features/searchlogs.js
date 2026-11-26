@@ -72,7 +72,8 @@ async function runSearchLogs(interaction) {
   });
 
   scored.sort((a, b) => b.score - a.score);
-  const top = scored.filter((s) => s.score >= 0.12).slice(0, 5);
+  const minThreshold = usedVectorSearch ? 0.30 : 0.12;
+  const top = scored.filter((s) => s.score >= minThreshold).slice(0, 5);
 
   if (top.length === 0) {
     return interaction.editReply({

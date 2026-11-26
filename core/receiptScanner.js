@@ -3,12 +3,34 @@
 // with AI Vision fallback (Gemini / OpenAI) when OCR confidence is low.
 const { VISION_MODE } = require('../config');
 const { isVisionAvailable, analyzeReceiptWithVision } = require('./receiptVision');
+const { shouldEscalateProviderToVision } = require('./data');
 
 let Tesseract = null;
 try {
   Tesseract = require('tesseract.js');
 } catch {
   // tesseract.js not yet installed, fallback regex is used on text captions
+}
+
+let createCanvas = null;
+let loadImage = null;
+try {
+  const canvasPkg = require('@napi-rs/canvas');
+  createCanvas = canvasPkg.createCanvas;
+  loadImage = canvasPkg.loadImage;
+} catch {
+  // @napi-rs/canvas not available; skip dark-mode preprocessing
+}
+
+/**
+ * Normalizes a reference number for reliable duplicate comparison across formatting differences
+ * (e.g. "1047 553 476926" == "1047553476926" == "1047-553-476926").
+ * Returns null if too short (< 6 chars) to be a unique transaction reference.
+ */
+function normalizeRefNumber(refNo) {
+  if (!refNo || typeof refNo !== 'string') return null;
+  const norm = refNo.replace(/[\s\-_.:#]/g, '').toUpperCase().trim();
+  return norm.length >= 6 ? norm : null;
 }
 
 /**
@@ -84,8 +106,13 @@ function findReferenceNumber(text) {
   return null;
 }
 
+function formatPhpAmount(num) {
+  return `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 /**
  * Extracts detailed transaction amount (both formatted string and numeric value) from raw OCR text.
+ * Handles ₱, PHP, Php, P prefixes/suffixes, negative history signs, and ignores Fee/Charge lines.
  * @param {string} text
  * @returns {{ formatted: string|null, value: number|null }}
  */
@@ -96,42 +123,56 @@ function parseAmountDetails(text) {
 
   // 1. Explicit labeled totals: "Total Amount Sent ₱ 114.00", "Total Amount: ₱114.00", "Total Paid: 114.00"
   const totalMatch = clean.match(
-    /(?:total\s*amount(?:\s*sent)?(?:\s*paid)?|total(?:\s*paid)?|amount\s*sent)\s*[:.]?\s*(?:php|₱|p\.?)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i
+    /(?:total\s*amount(?:\s*sent)?(?:\s*paid)?|total(?:\s*paid)?|amount\s*sent|you\s*sent|successfully\s*sent)\s*[:.\-]?\s*(?:-\s*)?(?:php|₱|p\.?)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i
   );
   if (totalMatch) {
     const num = parseFloat(totalMatch[1].replace(/,/g, ''));
-    if (!isNaN(num) && num > 0) {
-      return {
-        formatted: `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        value: num,
-      };
+    if (!isNaN(num) && num > 0 && num < 500000) {
+      return { formatted: formatPhpAmount(num), value: num };
     }
   }
 
-  // 2. Generic labeled "Amount 114.00", "Amount: PHP 114.00"
-  const amountMatch = clean.match(
-    /(?:amount|paid)\s*[:.]?\s*(?:php|₱|p\.?)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i
-  );
-  if (amountMatch) {
-    const num = parseFloat(amountMatch[1].replace(/,/g, ''));
-    if (!isNaN(num) && num > 0) {
-      return {
-        formatted: `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        value: num,
-      };
+  // 2. Generic labeled "Amount 114.00", "Amount: PHP 114.00" (skip "Fee" / "Charge" amounts)
+  const amountMatches = [
+    ...clean.matchAll(
+      /(?:(fee|convenience\s*fee|service\s*charge)\s*)?(?:amount|paid)\s*[:.\-]?\s*(?:-\s*)?(?:php|₱|p\.?)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/gi
+    ),
+  ];
+  for (const m of amountMatches) {
+    if (m[1]) continue; // skip fee labels
+    const num = parseFloat(m[2].replace(/,/g, ''));
+    if (!isNaN(num) && num > 0 && num < 500000) {
+      return { formatted: formatPhpAmount(num), value: num };
     }
   }
 
-  // 3. Currency symbol prefix: "₱ 114.00", "PHP 114.00", "₱114.00"
-  const currencyMatch = clean.match(/(?:₱|PHP)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i);
-  if (currencyMatch) {
-    const num = parseFloat(currencyMatch[1].replace(/,/g, ''));
-    if (!isNaN(num) && num > 0) {
-      return {
-        formatted: `₱${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        value: num,
-      };
-    }
+  // 3. Currency symbol prefix or suffix ("₱114.00", "-₱114.00", "PHP 114.00", "P114.00", "114.00 PHP")
+  // Strip lines mentioning Fee/Charge first so we don't accidentally grab a ₱15 transfer fee
+  const nonFeeText = text
+    .split(/[\r\n]+/)
+    .filter((line) => !/\b(?:fee|charge|balance)\b/i.test(line))
+    .join(' ');
+
+  const currencyCandidates = [];
+  const prefixMatches = [
+    ...nonFeeText.matchAll(/(?:-\s*)?(?:₱|PHP|Php|(?<![A-Za-z])P(?=\s*\d))\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{2}))/g),
+  ];
+  for (const m of prefixMatches) {
+    const n = parseFloat(m[1].replace(/,/g, ''));
+    if (!isNaN(n) && n > 0 && n < 500000) currencyCandidates.push(n);
+  }
+  const suffixMatches = [
+    ...nonFeeText.matchAll(/\b([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*(?:PHP|₱)\b/gi),
+  ];
+  for (const m of suffixMatches) {
+    const n = parseFloat(m[1].replace(/,/g, ''));
+    if (!isNaN(n) && n > 0 && n < 500000) currencyCandidates.push(n);
+  }
+
+  if (currencyCandidates.length > 0) {
+    // Pick the largest non-fee currency amount (typically the main transfer amount)
+    const best = Math.max(...currencyCandidates);
+    return { formatted: formatPhpAmount(best), value: best };
   }
 
   return { formatted: null, value: null };
@@ -203,6 +244,58 @@ function comparePaymentPrice(scannedAmount, expectedPrice) {
 }
 
 /**
+ * Preprocesses dark-mode screenshots (inverts + boosts contrast) so Tesseract OCR reads white-on-dark text reliably.
+ * @param {Buffer} buffer
+ * @returns {Promise<Buffer>}
+ */
+async function preprocessForOCR(buffer) {
+  if (!createCanvas || !loadImage || !buffer) return buffer;
+  try {
+    const img = await loadImage(buffer);
+    if (!img || !img.width || !img.height) return buffer;
+
+    // Sample average luminance on a small 64x64 thumbnail
+    const sw = 64;
+    const sh = 64;
+    const sampleCanvas = createCanvas(sw, sh);
+    const sCtx = sampleCanvas.getContext('2d');
+    sCtx.drawImage(img, 0, 0, sw, sh);
+    const sData = sCtx.getImageData(0, 0, sw, sh).data;
+    let lumSum = 0;
+    for (let i = 0; i < sData.length; i += 4) {
+      lumSum += 0.299 * sData[i] + 0.587 * sData[i + 1] + 0.114 * sData[i + 2];
+    }
+    const avgLum = lumSum / (sw * sh);
+
+    // Only invert/boost if screenshot is dark-mode
+    if (avgLum >= 115) return buffer;
+
+    const scale = img.width < 800 ? Math.min(2, 900 / img.width) : 1;
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = createCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      // Invert luminance + stretch contrast so white text becomes crisp black on white
+      let inv = 255 - lum;
+      inv = Math.max(0, Math.min(255, (inv - 128) * 1.35 + 128));
+      d[i] = inv;
+      d[i + 1] = inv;
+      d[i + 2] = inv;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return canvas.toBuffer('image/png');
+  } catch {
+    return buffer;
+  }
+}
+
+/**
  * Scans an image buffer using Tesseract OCR if available.
  * @param {Buffer} buffer
  * @returns {Promise<string|null>}
@@ -210,9 +303,10 @@ function comparePaymentPrice(scannedAmount, expectedPrice) {
 async function scanReceiptImage(buffer) {
   if (!Tesseract || !buffer) return null;
   try {
+    const processed = await preprocessForOCR(buffer);
     const {
       data: { text },
-    } = await Tesseract.recognize(buffer, 'eng', {
+    } = await Tesseract.recognize(processed, 'eng', {
       errorHandler: () => {},
     });
     return text || null;
@@ -375,9 +469,11 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentN
   let visualTamperFlags = [];
   let parsedBy = ocrAvailable ? 'OCR' : 'Regex';
 
-  // Smart Vision fallback: run when OCR missed key fields, text is sparse/unreadable, or VISION_MODE=always
+  // Smart Vision fallback: run when OCR missed key fields, text is sparse/unreadable,
+  // provider has a history of OCR corrections, or VISION_MODE=always
   const lowConfidence = !amountValue || !refNo || !isReceipt || rawText.trim().length < 35;
-  if (imageBuffer && isVisionAvailable() && (VISION_MODE === 'always' || lowConfidence)) {
+  const adaptiveEscalate = shouldEscalateProviderToVision(provider);
+  if (imageBuffer && isVisionAvailable() && (VISION_MODE === 'always' || lowConfidence || adaptiveEscalate)) {
     const vision = await analyzeReceiptWithVision(imageBuffer, mimeType);
     if (vision) {
       parsedBy = ocrAvailable ? 'OCR + AI Vision' : 'AI Vision';
@@ -418,6 +514,7 @@ async function extractReceiptDetails(imageBuffer, fallbackText = '', attachmentN
 module.exports = {
   extractReceiptDetails,
   findReferenceNumber,
+  normalizeRefNumber,
   findAmount,
   parseAmountDetails,
   comparePaymentPrice,

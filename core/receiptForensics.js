@@ -149,14 +149,16 @@ async function computeELA(buffer) {
 
     heatCtx.putImageData(heatImg, 0, 0);
 
-    const sorted = [...blockErrors].sort((a, b) => a - b);
-    const medianBlockErr = sorted[Math.floor(sorted.length * 0.5)] || 0.01;
+    const nonFlat = blockErrors.filter((e) => e >= 0.08).sort((a, b) => a - b);
+    const sorted = nonFlat.length >= 4 ? nonFlat : [...blockErrors].sort((a, b) => a - b);
+    const medianBlockErr = sorted[Math.floor(sorted.length * 0.5)] || 0.5;
     const p95 = sorted[Math.floor(sorted.length * 0.95)] || medianBlockErr;
     const maxBlockErr = sorted[sorted.length - 1] || 0;
 
-    // Spike ratio: how much hotter the top 5% / max blocks are vs median background
-    const spikeRatio = Number((p95 / Math.max(medianBlockErr, 0.35)).toFixed(2));
-    const hotThreshold = Math.max(medianBlockErr * 3.2, 4.5);
+    // Spike ratio: calibrate floor to avoid false positives on crisp PNG text over flat backgrounds
+    const noiseFloor = Math.max(medianBlockErr, 1.1);
+    const spikeRatio = Number((p95 / noiseFloor).toFixed(2));
+    const hotThreshold = Math.max(noiseFloor * 3.5, 5.0);
     const hotBlocks = blockErrors.filter((e) => e >= hotThreshold).length;
     const hotBlockPct = Number(((hotBlocks / blockErrors.length) * 100).toFixed(1));
 

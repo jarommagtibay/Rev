@@ -9,26 +9,28 @@ async function generateTextWithLLM(prompt) {
   if (!isLLMAvailable()) return null;
 
   if (GEMINI_API_KEY) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(
-        GEMINI_API_KEY
-      )}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(15000),
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 350 },
-        }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text && text.trim()) return { text: text.trim(), engine: 'Gemini AI' };
+    for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+          GEMINI_API_KEY
+        )}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(15000),
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 350 },
+          }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && text.trim()) return { text: text.trim(), engine: 'Gemini AI' };
+        }
+      } catch (err) {
+        console.warn(`[ai] Gemini (${model}) text generation failed:`, err.message || err);
       }
-    } catch (err) {
-      console.warn('[ai] Gemini text generation failed:', err.message || err);
     }
   }
 
@@ -165,28 +167,30 @@ async function getTextEmbedding(text) {
   if (!input) return null;
 
   if (GEMINI_API_KEY) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${encodeURIComponent(
-        GEMINI_API_KEY
-      )}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(12000),
-        body: JSON.stringify({
-          model: 'models/text-embedding-004',
-          content: { parts: [{ text: input }] },
-        }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const values = json?.embedding?.values;
-        if (Array.isArray(values) && values.length > 0) {
-          return { vector: values, model: 'gemini' };
+    for (const embModel of ['text-embedding-004', 'gemini-embedding-001']) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${embModel}:embedContent?key=${encodeURIComponent(
+          GEMINI_API_KEY
+        )}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(12000),
+          body: JSON.stringify({
+            model: `models/${embModel}`,
+            content: { parts: [{ text: input }] },
+          }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const values = json?.embedding?.values;
+          if (Array.isArray(values) && values.length > 0) {
+            return { vector: values, model: `gemini:${embModel}` };
+          }
         }
+      } catch (err) {
+        console.warn(`[ai] Gemini embedding (${embModel}) failed:`, err.message || err);
       }
-    } catch (err) {
-      console.warn('[ai] Gemini embedding failed:', err.message || err);
     }
   }
 

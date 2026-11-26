@@ -9,7 +9,7 @@ const {
   ModalBuilder,
 } = require('discord.js');
 const { COLOR } = require('../config');
-const { data, saveData, formatPrice, formatPeso, recordStaffAction, recordCompletionDuration, recordCompletedOrder } = require('./data');
+const { data, saveData, formatPrice, formatPeso, recordStaffAction, recordCompletionDuration, recordCompletedOrder, recordOcrOutcome } = require('./data');
 const M = require('../messages');
 const {
   EPHEMERAL,
@@ -75,6 +75,9 @@ async function markPaymentReceivedUnlocked(message, channel, user) {
   const entry = data.queue.find((e) => e.channelId === channel.id);
   if (entry) {
     entry.paidAt = Date.now();
+    if (entry.lastScannedReceipt && entry.lastScannedReceipt.provider && !entry.lastScannedReceipt.isDuplicate) {
+      recordOcrOutcome(entry.lastScannedReceipt.provider, true);
+    }
     if (entry.price > 0 && entry.amountPaid > 0 && entry.amountPaid < entry.price) {
       entry.amountPaid = entry.price;
       setPaymentProgressField(embed, entry.amountPaid, entry.price, (entry.payments && entry.payments.length) || 1);

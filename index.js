@@ -10,7 +10,7 @@ const client = require('./core/client');
 const { data, saveData } = require('./core/data');
 const { refreshQueue, removeFromQueue } = require('./core/queue');
 const { EPHEMERAL, isStaff } = require('./core/helpers');
-const { extractReceiptDetails, comparePaymentPrice } = require('./core/receiptScanner');
+const { extractReceiptDetails, comparePaymentPrice, normalizeRefNumber } = require('./core/receiptScanner');
 const {
   analyzeReceiptForensics,
   computePerceptualHash,
@@ -378,6 +378,7 @@ client.on(Events.MessageCreate, async (message) => {
 
           if (!Array.isArray(data.receiptHashes)) data.receiptHashes = [];
           const pHash = await computePerceptualHash(buf);
+          const normRef = normalizeRefNumber(scanResult.refNo);
 
           let matchReason = '';
           let previous = data.receiptHashes.find(
@@ -385,7 +386,17 @@ client.on(Events.MessageCreate, async (message) => {
           );
           if (previous) {
             matchReason = 'Exact File Match (SHA-256)';
-          } else if (pHash) {
+          } else if (normRef) {
+            previous = data.receiptHashes.find(
+              (r) =>
+                r.channelId !== message.channel.id &&
+                (r.normalizedRef || normalizeRefNumber(r.refNo)) === normRef
+            );
+            if (previous) {
+              matchReason = `Duplicate Reference Number (\`${scanResult.refNo}\` already used in #${previous.channelName || previous.channelId})`;
+            }
+          }
+          if (!previous && pHash) {
             let bestDist = 99;
             for (const r of data.receiptHashes) {
               if (r.channelId !== message.channel.id && r.pHash) {
@@ -404,6 +415,27 @@ client.on(Events.MessageCreate, async (message) => {
 
           if (previous) {
             isDuplicate = true;
+            if (entry) {
+              entry.lastScannedReceipt = {
+                refNo: scanResult.refNo,
+                amount: scanResult.amount,
+                amountValue: scanResult.amountValue,
+                provider: scanResult.provider,
+                isFailed: scanResult.isFailed,
+                isDuplicate: true,
+                forensics: {
+                  riskScore: forensics.riskScore,
+                  riskLevel: forensics.riskLevel,
+                  badge: forensics.badge,
+                  reasons: forensics.reasons,
+                },
+                timestamp: Date.now(),
+              };
+            }
+            const prevDateText = previous.timestamp
+              ? `<t:${Math.floor(previous.timestamp / 1000)}:R>`
+              : '*Unknown*';
+
             // 1. Post urgent fraud alert in staff audit channel
             if (AUDIT_CHANNEL_ID) {
               const auditChan = await client.channels.fetch(AUDIT_CHANNEL_ID).catch(() => null);
@@ -421,7 +453,7 @@ client.on(Events.MessageCreate, async (message) => {
                         `• **Current User:** <@${message.author.id}> (@${message.author.username})\n` +
                         `• **Previously Used In:** #${previous.channelName || previous.channelId}\n` +
                         `• **Previously Uploaded By:** <@${previous.userId}> (@${previous.username})\n` +
-                        `• **Original Upload Date:** <t:${Math.floor(previous.timestamp / 1000)}:R>\n` +
+                        `• **Original Upload Date:** ${prevDateText}\n` +
                         `• **Ref No:** ${scanResult.refNo ? `\`${scanResult.refNo}\`` : '*Not detected*'}\n` +
                         `• **Amount:** ${scanResult.amount ? `\`${scanResult.amount}\`` : '*Not detected*'}\n\n` +
                         `⚠️ **Action Required:** Do NOT process this order until staff manually verifies genuine transaction history in GCash.`
@@ -440,32 +472,40 @@ client.on(Events.MessageCreate, async (message) => {
                   .setColor(0xff0000)
                   .setTitle('⚠️  Security Warning: Duplicate Receipt Detected')
                   .setDescription(
-                    'This receipt screenshot matches an image that was **previously uploaded in another ticket**.\n' +
+                    'This receipt or reference number matches a payment that was **previously uploaded in another ticket**.\n' +
                     'Staff has been notified and will perform a manual payment verification before proceeding.'
                   )
                   .setTimestamp(),
               ],
             });
           } else {
-            // Save SHA-256 + perceptual pHash
-            data.receiptHashes.push({
-              hash: imgHash,
-              pHash: pHash || null,
-              channelId: message.channel.id,
-              channelName: message.channel.name,
-              userId: message.author.id,
-              username: message.author.username,
-              refNo: scanResult.refNo,
-              amount: scanResult.amount,
-              timestamp: Date.now(),
-            });
-            if (data.receiptHashes.length > 5000) {
-              data.receiptHashes = data.receiptHashes.slice(-5000);
+            // Save SHA-256 + perceptual pHash + normalized Ref No (avoid duplicate entries in the same ticket)
+            const sameTicketExists = data.receiptHashes.some(
+              (r) =>
+                r.channelId === message.channel.id &&
+                (r.hash === imgHash || (normRef && (r.normalizedRef || normalizeRefNumber(r.refNo)) === normRef))
+            );
+            if (!sameTicketExists) {
+              data.receiptHashes.push({
+                hash: imgHash,
+                pHash: pHash || null,
+                normalizedRef: normRef || null,
+                channelId: message.channel.id,
+                channelName: message.channel.name,
+                userId: message.author.id,
+                username: message.author.username,
+                refNo: scanResult.refNo,
+                amount: scanResult.amount,
+                timestamp: Date.now(),
+              });
+              if (data.receiptHashes.length > 5000) {
+                data.receiptHashes = data.receiptHashes.slice(-5000);
+              }
+              saveData();
             }
-            saveData();
 
-            // Resolve order expected price from entry or embed
-            let expectedPrice = entry?.price ?? null;
+            // Resolve order expected price from entry, embed fields, or embed description
+            let expectedPrice = entry?.price != null && entry.price > 0 ? Number(entry.price) : null;
             if (expectedPrice == null && fields.length > 0) {
               const priceField = fields.find((f) => f.name === 'Price' || f.name === 'Flash Price');
               if (priceField && priceField.value) {
@@ -473,6 +513,11 @@ client.on(Events.MessageCreate, async (message) => {
                 const matchPrice = cleanPrice.match(/([0-9]+(?:\.[0-9]+)?)/);
                 if (matchPrice) expectedPrice = parseFloat(matchPrice[1]);
               }
+            }
+            if (expectedPrice == null && embed && (embed.data?.description || embed.description)) {
+              const descStr = String(embed.data?.description || embed.description).replace(/,/g, '');
+              const descMatch = descStr.match(/(?:₱|PHP)\s*([0-9]+(?:\.[0-9]+)?)/i);
+              if (descMatch) expectedPrice = parseFloat(descMatch[1]);
             }
 
             // Track partial / split payments on this ticket
@@ -675,11 +720,11 @@ client.on(Events.MessageCreate, async (message) => {
               .setDescription(
                 (isTopUp
                   ? `We recorded your transfer #${transferCount}, and your **Payment Progress** has been updated:\n\n` +
-                    `• **This Transfer:** **${scanResult.amount}**\n` +
+                    `• **This Transfer:** **${scanResult.amount || 'Amount N/A'}**\n` +
                     `• **Total Paid So Far:** **₱${Number(totalPaidVal).toFixed(2)}** / **₱${Number(expectedPriceVal).toFixed(2)}**\n`
                   : `We scanned your receipt, but the detected amount is **less than the required order total**:\n\n` +
                     `• **Order Total:** **₱${Number(expectedPriceVal).toFixed(2)}**\n` +
-                    `• **Receipt Amount Detected:** **${scanResult.amount}**\n`) +
+                    `• **Receipt Amount Detected:** **${scanResult.amount || 'Amount N/A'}**\n`) +
                 `• **Remaining Balance Needed:** **₱${receiptComparison.shortage.toFixed(2)}**\n\n` +
                 `ℹ️ *Please send the remaining **₱${receiptComparison.shortage.toFixed(2)}** and upload the next receipt here — it will be added automatically!*\n` +
                 `*(If our scanner misread your screenshot, don't worry! Staff can manually adjust it shortly.)*`
@@ -701,10 +746,10 @@ client.on(Events.MessageCreate, async (message) => {
               .setDescription(
                 (isSplitComplete
                   ? `Transfer #${transferCount} received — your payments now cover the full order total!\n\n` +
-                    `• **This Transfer:** **${scanResult.amount}**\n` +
+                    `• **This Transfer:** **${scanResult.amount || 'Amount N/A'}**\n` +
                     `• **Total Paid:** **₱${Number(totalPaidVal).toFixed(2)}** / **₱${Number(expectedPriceVal).toFixed(2)}** (${transferCount} transfers ✅)\n`
                   : `Receipt screenshot received:\n\n` +
-                    `• **Amount Detected:** **${scanResult.amount}** (${receiptComparison.status === 'overpaid' ? `✅ Covers total (+₱${receiptComparison.excess.toFixed(2)})` : '✅ Matches order total'})\n`) +
+                    `• **Amount Detected:** **${scanResult.amount || 'Amount N/A'}** (${receiptComparison.status === 'overpaid' ? `✅ Covers total (+₱${receiptComparison.excess.toFixed(2)})` : '✅ Matches order total'})\n`) +
                 (scanResult.refNo ? `• **Ref No:** \`${scanResult.refNo}\`\n\n` : '\n') +
                 `Staff has been notified to verify your payment. Please wait a moment while we process your order!`
               )

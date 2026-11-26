@@ -4,7 +4,7 @@ const path = require('path');
 const { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const { COLOR, CURRENCY, QR_FILES, QR_NAMES, QR_DETAILS } = require('../config');
 const M = require('../messages');
-const { data, saveData, formatPeso, orderPriceText } = require('../core/data');
+const { data, saveData, formatPeso, orderPriceText, recordOcrOutcome } = require('../core/data');
 const { EPHEMERAL, isStaff } = require('../core/helpers');
 const { markPaymentReceived, runOrderCommand } = require('../core/orderActions');
 const { setPaymentProgressField } = require('../core/ticket');
@@ -239,6 +239,9 @@ async function runAddPayment(interaction) {
   await interaction.deferReply({ flags: EPHEMERAL });
 
   if (reset || !Array.isArray(entry.payments)) {
+    if (reset && entry.lastScannedReceipt && entry.lastScannedReceipt.provider) {
+      recordOcrOutcome(entry.lastScannedReceipt.provider, false);
+    }
     entry.payments = [];
   }
 
